@@ -48,6 +48,20 @@ const CAVEAT = both(
 
 export const T = {
   caveat: CAVEAT,
+  data: {
+    unreadable: both(
+      '/data was unreadable at the start: the time of the last read and the pause were lost (the file is kept aside).',
+      "/data était illisible au démarrage : l'heure de la dernière lecture et la pause ont été perdues (le fichier est mis de côté).",
+    ),
+    unwritable: both(
+      '/data cannot be written: after a restart, the interval and a pause would not be kept.',
+      "/data ne peut pas être écrit : après un redémarrage, l'intervalle et une pause ne seraient pas gardés.",
+    ),
+    frozen: both(
+      '/data does not answer (write still pending): the reads go on, but a restart would not keep the interval.',
+      "/data ne répond pas (écriture en attente) : les lectures continuent, mais un redémarrage ne garderait pas l'intervalle.",
+    ),
+  },
   notStarted: both(
     'The integration is not started yet (waiting for Gladys).',
     "L'intégration n'est pas encore démarrée (en attente de Gladys).",
@@ -79,7 +93,9 @@ export const T = {
     both(`Only the first ${n} houses are read.`, `Seules les ${n} premières maisons sont lues.`),
   read: (count, at) =>
     both(`Read at ${hhmm(at)}: ${count} house(s).`, `Lecture de ${hhmm(at)} : ${count} maison(s).`),
-  house: (name, r) => {
+  house: (fullName, r) => {
+    // Bounded: five long names must not push the reasons out of the status.
+    const name = fullName.length > 40 ? `${fullName.slice(0, 39)}…` : fullName;
     const en = [];
     const fr = [];
     const add = (e, f) => {
@@ -94,7 +110,10 @@ export const T = {
     if (perimeters?.status === 'ok') {
       add(`${perimeters.count} active perimeter(s)`, `${perimeters.count} périmètre(s) actif(s)`);
     } else if (perimeters?.status === 'outside') {
-      add('no perimeter outside Canada', 'pas de périmètre hors du Canada');
+      add(
+        'perimeters not published off the Canadian map',
+        'périmètres non publiés hors de la carte canadienne',
+      );
     }
     if (station?.status === 'ok') {
       const fwi = Math.round(station.fwi);
@@ -115,10 +134,8 @@ export const T = {
       );
     } else if (danger?.status === 'none') {
       add(
-        danger.covered ? 'no danger class at this point of the map' : 'off the danger map (Canada)',
-        danger.covered
-          ? 'pas de classe de danger à ce point de la carte'
-          : 'hors de la carte du danger (Canada)',
+        'off the danger map (outside Canada, or a gap of the map)',
+        'hors de la carte du danger (hors du Canada, ou un trou de la carte)',
       );
     }
     return both(

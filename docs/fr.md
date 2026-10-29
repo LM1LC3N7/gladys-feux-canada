@@ -51,13 +51,18 @@ Contient des informations visées par la Licence du gouvernement ouvert – Cana
 - la date du point chaud le plus récent de toute la couche, et de la dernière
   mise à jour des périmètres : la fraîcheur des deux couches ;
 - la date de la carte du danger (légende du serveur cartographique) ;
+- sans appareil créé, ou si la maison d'un appareil a disparu, rien n'est
+  envoyé : les maisons de Gladys sont regardées de nouveau chaque minute ;
 - pour chaque maison qui a son appareil : les points chauds et les périmètres
   dans une boîte qui contient le rayon, les stations à 200 km, et la carte du
   danger autour de la maison (relue avec une nouvelle date de carte, ou après
   6 heures).
 
-Votre position exacte n'est pas envoyée : les boîtes sont arrondies vers
-l'extérieur au dixième de degré, et les distances sont calculées dans Gladys.
+Votre position exacte n'est pas envoyée : toutes les boîtes sont construites à
+partir de la seule case de 0,1° × 0,1° qui contient la maison (environ 11 km ×
+7 km), si bien que les recouper ne dit rien de plus fin que cette case ; les
+distances sont calculées dans Gladys. Près de la ligne de changement de date
+(Aléoutiennes), la boîte fait le tour de la Terre.
 Le serveur ne propose ni `ETag` ni `Last-Modified` : l'intervalle est le seul
 frein, et la lecture suivante ne part pas plus tôt que l'intervalle, ni après
 un redémarrage (l'heure de la dernière lecture est gardée dans `/data`), ni
@@ -69,6 +74,14 @@ par le bouton **Tester**, la Découverte ou la création d'un appareil.
   la source est muette ou périmée, les points chauds ne sont **pas publiés** (ni 0) et le statut le dit.
 - Périmètres sans mise à jour depuis 7 jours (fin de saison) : non publiés.
   Maison hors de la carte du danger (hors du Canada) : ni périmètres ni danger.
+  Une maison n'est sur la carte que dans un de ses polygones : la carte
+  s'arrête à la frontière, une maison américaine juste à côté n'a donc pas de
+  périmètres (rien plutôt qu'un faux 0) ; une maison dans un trou de la carte
+  (un grand lac) est traitée de même.
+- Un enregistrement illisible (champ renommé, date sans fuseau, classe de
+  danger inconnue) ou une réponse coupée à sa taille de page (plus de 20 000
+  points chauds, 500 périmètres) : la partie n'est pas publiée, le statut dit
+  pourquoi, jamais un décompte partiel.
 - Aucune station avec un relevé de moins de 36 h et un IFM à 200 km : IFM et
   station non publiés (hors saison, de novembre à mars, c'est le cas normal).
 - Carte du danger datée de plus de 2 jours : danger non publié. Si sa date est
@@ -78,6 +91,12 @@ par le bouton **Tester**, la Découverte ou la création d'un appareil.
   serveur) n'empêche pas les autres d'être lues et publiées.
 - Les valeurs qui n'ont pas changé sont renvoyées toutes les 3 heures, pour
   rester datées.
+- `/data` illisible au démarrage, impossible à écrire ou qui ne répond plus : les
+  lectures continuent (une écriture est attendue 2 secondes au plus) et le statut
+  le dit, car un redémarrage ne garderait alors ni l'intervalle ni la pause.
+- Une configuration enregistrée pendant une lecture l'abandonne (rien n'en est
+  publié) : la suivante vient à l'échéance de l'intervalle, avec la nouvelle
+  configuration.
 
 ## Déclencheurs de scène
 

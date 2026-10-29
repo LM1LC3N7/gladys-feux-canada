@@ -26,7 +26,8 @@ export class SourceError extends Error {
 /** Retry-After in ms (seconds or an HTTP date against `Date` of the answer), undefined otherwise. */
 export function retryAfterMs(value, dateHeader) {
   const text = String(value ?? '').trim();
-  if (/^\d{1,7}$/.test(text)) {
+  // Any number of seconds: the app caps the pause (6 h).
+  if (/^\d{1,12}$/.test(text)) {
     return Number(text) * 1000;
   }
   const at = Date.parse(text);

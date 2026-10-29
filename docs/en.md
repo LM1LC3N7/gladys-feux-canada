@@ -49,12 +49,16 @@ At each read, one request at a time, at least a second between two:
 - the date of the newest hotspot of the whole layer, and of the last update of
   the perimeters: how fresh both layers are;
 - the date of the danger map (legend of the map server);
+- with no device created, or when the house of a device is gone, nothing is
+  sent: the houses of Gladys are looked at again every minute;
 - for each house with its device: the hotspots and perimeters in a box holding
   the radius, the stations within 200 km, and the danger map around the house
   (read again with a new map date, or after 6 hours).
 
-Your exact location is not sent: the boxes are rounded outward to a tenth of a
-degree, and the distances are computed in Gladys. The server offers neither
+Your exact location is not sent: every box is built from the 0.1° × 0.1° cell
+holding the house only (about 11 km × 7 km), so that crossing them tells
+nothing finer than that cell; the distances are computed in Gladys. Near the
+date line (the Aleutians), the box goes round the Earth. The server offers neither
 `ETag` nor `Last-Modified`: the interval is the only brake, and the next read
 does not come sooner than the interval, neither after a restart (the time of the
 last read is kept in `/data`), nor through the **Test** button, Discovery or
@@ -66,7 +70,14 @@ the creation of a device.
   silent or stale, the hotspots are **not published** (not 0 either) and the
   status says so.
 - Perimeters not updated for 7 days (season over): not published. House off
-  the danger map (outside Canada): neither perimeters nor danger.
+  the danger map (outside Canada): neither perimeters nor danger. A house is on
+  the map only inside one of its polygons: the map stops at the border, so a US
+  house next to it gets no perimeter (nothing rather than a false 0); a house
+  in a gap of the map (a large lake) is treated the same way.
+- An unreadable record (a field renamed, a date without zone, an unknown danger
+  class) or an answer cut at its page size (over 20,000 hotspots, 500
+  perimeters): the part is not published, the status says why, never a partial
+  count.
 - No station with a report under 36 h old and an FWI within 200 km: FWI and
   station not published (off season, November to March, this is the normal
   case).
@@ -75,6 +86,11 @@ the creation of a device.
 - A part that fails (HTTP error, answer too large, error report of the server)
   does not keep the others from being read and published.
 - Unchanged values are sent again every 3 hours, so that they stay dated.
+- `/data` unreadable at the start, not writable or not answering: the reads go
+  on (a write is waited for 2 seconds at most) and the status says so, since a
+  restart would then keep neither the interval nor the pause.
+- A configuration saved during a read drops it (nothing of it is published):
+  the next one comes when the interval is due, with the new configuration.
 
 ## Scene triggers
 

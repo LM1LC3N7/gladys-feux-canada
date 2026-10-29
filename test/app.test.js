@@ -205,7 +205,10 @@ test('a house outside Canada: no perimeter, no danger published, hotspots are', 
   assert.equal(t.last(p('active_perimeters')), undefined);
   assert.equal(t.last(p('danger')), undefined);
   assert.equal(t.server.count('perimeters'), 0);
-  assert.match(t.gladys.fake.connectionStatus.message.en, /no perimeter outside Canada/);
+  assert.match(
+    t.gladys.fake.connectionStatus.message.en,
+    /perimeters not published off the Canadian map/,
+  );
 });
 
 test('the date of the danger map unreadable: the values are still read (secondary)', async () => {
@@ -540,19 +543,19 @@ test('json helper is a Response', () => {
   assert.ok(json({}) instanceof Response);
 });
 
-test('a house in a gap of the danger map (a lake): no class, but the perimeters are read', async () => {
+test('a house in a gap of the danger map (a lake): off the map, nothing rather than a false 0', async () => {
   const server = createServer();
   const gap = fixture('danger');
-  // The polygons of the box stay, none of them holds the house any more.
+  // The polygons of the box stay, none holds the house: the nearest is ~0.5 km north.
   for (const f of gap.features) {
     f.geometry = {
       type: 'Polygon',
       coordinates: [
         [
-          [-66.69, 45.91],
-          [-66.68, 45.91],
-          [-66.68, 45.92],
-          [-66.69, 45.91],
+          [-66.65, 45.968],
+          [-66.6, 45.968],
+          [-66.6, 45.98],
+          [-66.65, 45.968],
         ],
       ],
     };
@@ -561,8 +564,51 @@ test('a house in a gap of the danger map (a lake): no class, but the perimeters 
   const t = await setup({ server });
   await t.start();
   assert.equal(t.last(fred('danger')), undefined);
-  assert.equal(t.last(fred('active_perimeters')), 1);
-  assert.match(t.gladys.fake.connectionStatus.message.en, /no danger class at this point/);
+  assert.equal(t.last(fred('active_perimeters')), undefined);
+  assert.equal(t.last(fred('hotspots')), 9);
+  assert.match(t.gladys.fake.connectionStatus.message.en, /off the danger map/);
+});
+
+test('a US house 200 m south of the border (Sumas, WA): off the map, no perimeter published', async () => {
+  const sumas = {
+    id: 'h9',
+    name: 'Sumas',
+    selector: 'sumas',
+    latitude: 48.9688,
+    longitude: -122.2654,
+  };
+  const server = createServer();
+  // The danger map of Canada stops at the border (49 N).
+  const canada = {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: { GRIDCODE: 1 },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [
+            [
+              [-123, 49],
+              [-121, 49],
+              [-121, 50],
+              [-123, 50],
+              [-123, 49],
+            ],
+          ],
+        },
+      },
+    ],
+  };
+  server.answer = (route) => (route === 'danger' ? canada : undefined);
+  const t = await setup({ server, devices: [created(sumas)], houses: [sumas] });
+  await t.start();
+  const p = (key) => F('sumas', key);
+  assert.equal(t.last(p('active_perimeters')), undefined);
+  assert.equal(t.last(p('nearest_perimeter_km')), undefined);
+  assert.equal(t.last(p('danger')), undefined);
+  assert.equal(server.count('perimeters'), 0);
+  assert.ok(t.last(p('hotspots')) !== undefined, 'the hotspots cover North America');
 });
 
 test('a configuration saved while getConfig is still running wins', async () => {

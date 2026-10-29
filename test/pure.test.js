@@ -21,10 +21,10 @@ import {
 import { buildHouseDevice, houseStates, parseExternalId, stationText } from '../src/devices.js';
 import {
   bearingDeg,
-  boundingBox,
+  cellBox,
+  cellOf,
   compassPoint,
   containsPoint,
-  degreeBox,
   distanceKm,
   distanceToPolygonKm,
 } from '../src/geo.js';
@@ -47,23 +47,47 @@ test('distance, bearing and compass points', () => {
   assert.equal(compassPoint(359, 'en'), 'N');
 });
 
-test('the box sent holds the whole radius, snapped outward to a tenth of a degree', () => {
-  for (const km of [5, 50, 300]) {
-    const box = boundingBox(home, km);
+test('the boxes sent are built from the 0.1-degree cell only and hold the whole radius', () => {
+  const cell = cellOf(home);
+  assert.deepEqual(cell, { west: -66.7, south: 45.9, east: -66.6, north: 46 });
+  // Any point of the same cell gives the same boxes: nothing finer than the cell leaves.
+  for (const km of [5, 50, 200, 300]) {
+    assert.deepEqual(
+      cellBox(cellOf({ latitude: 45.901, longitude: -66.699 }), km),
+      cellBox(cell, km),
+    );
+    assert.deepEqual(
+      cellBox(cellOf({ latitude: 45.999, longitude: -66.601 }), km),
+      cellBox(cell, km),
+    );
+    const box = cellBox(cell, km);
     for (const v of Object.values(box)) assert.equal(Math.round(v * 10) / 10, v);
-    for (const bearing of [0, 45, 90, 135, 180, 225, 270, 315]) {
-      const d = km / 111.19;
-      const lat = home.latitude + d * Math.cos((bearing * Math.PI) / 180);
-      const lon =
-        home.longitude +
-        (d * Math.sin((bearing * Math.PI) / 180)) / Math.cos((lat * Math.PI) / 180);
-      assert.ok(lat >= box.south && lat <= box.north, `${km} km ${bearing}`);
-      assert.ok(lon >= box.west && lon <= box.east, `${km} km ${bearing}`);
+    for (const corner of [
+      { latitude: 45.9, longitude: -66.7 },
+      { latitude: 46, longitude: -66.6 },
+    ]) {
+      for (const bearing of [0, 45, 90, 135, 180, 225, 270, 315]) {
+        const d = km / 111.19;
+        const lat = corner.latitude + d * Math.cos((bearing * Math.PI) / 180);
+        const lon =
+          corner.longitude +
+          (d * Math.sin((bearing * Math.PI) / 180)) / Math.cos((lat * Math.PI) / 180);
+        assert.ok(lat >= box.south && lat <= box.north, `${km} km ${bearing}`);
+        assert.ok(lon >= box.west && lon <= box.east, `${km} km ${bearing}`);
+      }
     }
   }
-  const polar = boundingBox({ latitude: 89.5, longitude: 10 }, 100);
+  const polar = cellBox(cellOf({ latitude: 89.5, longitude: 10 }), 100);
   assert.deepEqual([polar.west, polar.east, polar.north], [-180, 180, 90]);
-  assert.deepEqual(degreeBox(home, 0.05), { west: -66.7, south: 45.9, east: -66.5, north: 46.1 });
+  // Across the date line (the Aleutians): every longitude, never a box cut at 180.
+  const aleutian = cellBox(cellOf({ latitude: 51.9, longitude: 179.95 }), 50);
+  assert.deepEqual([aleutian.west, aleutian.east], [-180, 180]);
+  assert.deepEqual(cellOf({ latitude: 90, longitude: 180 }), {
+    west: 179.9,
+    south: 89.9,
+    east: 180,
+    north: 90,
+  });
 });
 
 test('point in polygon (holes are outside) and distance to an outline', () => {

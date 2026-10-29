@@ -108,8 +108,8 @@ export function mapAgeDays(date, now) {
 /**
  * The danger class at the house: `area` is the polygon of the map holding it
  * (`{ code }`, GRIDCODE 0-4 published as level 1-5), undefined when none
- * holds it. `covered` says whether the map reaches the house at all (a polygon
- * near it: Canada). `date` is the date of the map when readable: older than
+ * holds it. `covered` says whether the house is on the map at all (inside one
+ * of its polygons: Canada). `date` is the date of the map when readable: older than
  * DANGER_MAX_DAYS it is stale; unreadable, it is never called stale.
  */
 export function dangerPart(area, { date, now, covered = Boolean(area) }) {

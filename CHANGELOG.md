@@ -23,3 +23,8 @@ the notes of the version's GitHub Release.
   of a degree).
 - One request at a time, a read never sooner than the interval (restart, test
   button and Discovery included), a pause kept in `/data` after a 429 or 5xx.
+- Without any device created, nothing is sent and the houses are looked at
+  again once a minute; a frozen or unwritable `/data` never holds the reads nor
+  the stop, and is said in the status.
+- Unreadable or cut answers are never published as a count; a US house near
+  the border is not counted as on the Canadian map.

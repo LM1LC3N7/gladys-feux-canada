@@ -3,6 +3,8 @@
 // stored in the user's devices, scenes or /data: never renamed.
 // -----------------------------------------------------------------------------
 
+import { readFileSync } from 'node:fs';
+
 /**
  * The public WFS of the Canadian Wildland Fire Information System (CWFIS,
  * Natural Resources Canada), GeoServer, no key. Open Government Licence -
@@ -12,9 +14,17 @@ export const WFS_URL = 'https://cwfis.cfs.nrcan.gc.ca/geoserver/public/ows';
 /** The WMS of the same GeoServer: only the legend title (the date of the danger map). */
 export const WMS_URL = 'https://cwfis.cfs.nrcan.gc.ca/geoserver/public/wms';
 
+/** The version of the package (the release bumps it): the User-Agent follows. */
+const VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  } catch {
+    return 'unknown';
+  }
+})();
+
 /** Sent with every request: the server sees who asks. Never a browser's. */
-export const USER_AGENT =
-  'gladys-feux-canada/0.1.0 (+https://github.com/LM1LC3N7/gladys-feux-canada)';
+export const USER_AGENT = `gladys-feux-canada/${VERSION} (+https://github.com/LM1LC3N7/gladys-feux-canada)`;
 
 /** The layers read, their geometry column and the attributes asked for. */
 export const LAYERS = {
@@ -57,7 +67,7 @@ export const MAX_BODY = {
 /** Features asked at most (`count`); more matched is said in the status. */
 export const MAX_FEATURES = { hotspots: 20_000, perimeters: 500, stations: 2_000, danger: 50 };
 /** Vertices read at most in one answer of polygons (bounded analysis). */
-export const MAX_VERTICES = 2_000_000;
+export const MAX_VERTICES = 300_000;
 
 /** Read interval (minutes): default, minimum and maximum. */
 export const POLL = { default: 30, min: 15, max: 180 };
@@ -77,10 +87,11 @@ export const PERIMETERS_MAX_AGE = 7 * 24 * 3600_000;
 export const DANGER_MAX_DAYS = 2;
 /** The danger polygons of a house are read again after this long (ms), or with a new map date. */
 export const DANGER_REFRESH = 6 * 3600_000;
-/** The house is sent rounded: boxes snapped outward to this grid (degrees). */
+/**
+ * The house is sent as its cell of this grid (degrees): every box is built
+ * from the cell only, so crossing the requests tells nothing finer.
+ */
 export const BOX_GRID = 0.1;
-/** The box read around a house for the danger map (degrees each side, before snapping). */
-export const DANGER_BOX = 0.05;
 
 /** 429/5xx: a pause, doubled at each one, between these bounds (ms). */
 export const PAUSE = { min: 60_000, max: 6 * 3600_000 };
@@ -94,6 +105,10 @@ export const MEMORY_MAX_AGE = 48 * 3600_000;
 export const REARM_READS = 2;
 /** At most this many houses are watched. */
 export const MAX_HOUSES = 5;
+/** Nothing to read (no device, house gone): the houses are looked at again after this (ms). */
+export const IDLE_RETRY = 60_000;
+/** A write of /data is waited for at most this long (ms): a frozen /data holds nothing. */
+export const SAVE_WAIT = 2_000;
 /** A stop waits at most this long for the read running. */
 export const STOP_WAIT = 3_000;
 

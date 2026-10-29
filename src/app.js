@@ -14,20 +14,22 @@ import { createLogger } from '@gladysassistant/integration-sdk';
 import { normalizeConfig } from './config.js';
 import {
   CONFIG_RETRY,
-  DANGER_BOX,
   DANGER_REFRESH,
+  IDLE_RETRY,
   HOTSPOTS_MAX_AGE,
   MAX_HOUSES,
   PAUSE,
   PERIMETERS_MAX_AGE,
   PERIMETER_ACTIVE,
   STATE_HEARTBEAT,
+  SAVE_WAIT,
   STATION_SEARCH_KM,
   STOP_WAIT,
 } from './constants.js';
 import { CwfisClient } from './cwfis.js';
+import { SourceError } from './http.js';
 import { buildHouseDevice, houseStates, parseExternalId, validSelector } from './devices.js';
-import { boundingBox, containsPoint, degreeBox } from './geo.js';
+import { cellBox, cellOf, containsPoint } from './geo.js';
 import { T, joinLines } from './i18n.js';
 import { dangerPart, hotspotsPart, perimetersPart, stationPart } from './model.js';
 import { createFileStore } from './store.js';
@@ -45,6 +47,19 @@ const located = (h) =>
 const PAUSING = new Set(['rate_limited', 'server']);
 /** Errors after which the read stops for now: the server cannot be reached. */
 const UNREACHABLE = new Set(['timeout', 'network']);
+
+/**
+ * A layer answer with records dropped as unreadable, or cut at the page size,
+ * is never published as a count: the part fails and the status says why.
+ */
+function checkComplete(answer, what) {
+  if (answer.unreadable > 0) {
+    throw new SourceError('bad_answer', `${answer.unreadable} unreadable ${what} record(s)`);
+  }
+  if (answer.truncated) {
+    throw new SourceError('too_large', `more ${what}s than one answer holds`);
+  }
+}
 
 /** A pause read back from /data: `{ until, count, status }`; in memory it ends at a monotonic `due`. */
 function validPause(pause, now, mono) {
@@ -99,7 +114,13 @@ export class FeuxApp {
     /** The outcome of the last read, for the status and the test button. */
     this.outcome = undefined;
 
-    const { data: kept } = store.load();
+    const { data: kept, state } = store.load();
+    /**
+     * What is wrong with /data, said in the status: 'unreadable' (at the start:
+     * said for the whole session, the pause and the interval were lost) |
+     * 'unwritable' | 'frozen'.
+     */
+    this.dataProblem = state === 'unreadable' ? 'unreadable' : undefined;
     const at = now();
     const mono = monotonic();
     this.pause = validPause(kept.pause, at, mono);
@@ -120,6 +141,11 @@ export class FeuxApp {
 
   // --- /data ---------------------------------------------------------------------
 
+  /**
+   * Writes /data, waiting SAVE_WAIT at most: a frozen /data never holds a
+   * read, a stop nor a start (the write may still end later). Resolves true
+   * when written.
+   */
   async saveState() {
     const memories = Object.fromEntries(
       [...this.memories].map(([id, m]) => [id, { at: m.at, zones: m.zones, danger: m.danger }]),
@@ -129,12 +155,29 @@ export class FeuxApp {
       count: this.pause.count,
       status: this.pause.status,
     };
+    let timer;
     try {
-      await this.store.save({ lastAttemptAt: this.lastAttemptAt, pause, memories });
+      const written = await Promise.race([
+        Promise.resolve(
+          this.store.save({ lastAttemptAt: this.lastAttemptAt, pause, memories }),
+        ).then(() => true),
+        new Promise((resolve) => {
+          timer = this.timers.setTimeout(() => resolve(false), SAVE_WAIT);
+        }),
+      ]);
+      if (!written) {
+        this.dataProblem = 'frozen';
+        this.logger.warn('/data not written in time');
+        return false;
+      }
+      if (this.dataProblem !== 'unreadable') this.dataProblem = undefined;
       return true;
     } catch (err) {
+      this.dataProblem = 'unwritable';
       this.logger.warn(`/data not written (${err?.code ?? err?.message ?? 'error'})`);
       return false;
+    } finally {
+      this.timers.clearTimeout(timer);
     }
   }
 
@@ -345,9 +388,10 @@ export class FeuxApp {
   }
 
   /** The monotonic time from which the next read may start, from the caller's instant `mono`. */
-  dueAt(mono) {
+  dueAt(mono, { probe = false } = {}) {
     let due = this.lastReadAt === undefined ? mono : this.lastReadAt + this.interval();
-    if (this.nextTryAt !== undefined) due = Math.max(due, this.nextTryAt);
+    // The retry of the houses delays the loop, never the test button (no request was sent).
+    if (this.nextTryAt !== undefined && !probe) due = Math.max(due, this.nextTryAt);
     return Math.max(due, mono + this.pauseLeft(mono));
   }
 
@@ -373,6 +417,9 @@ export class FeuxApp {
       this.logger.error(`Unexpected error (${err?.name ?? 'Error'}: ${err?.message})`);
     }
     if (session === this.session && this.running) {
+      // Whatever the way out of the read, the next try is never at once.
+      const mono = this.monotonic();
+      if (this.dueAt(mono) <= mono) this.nextTryAt = mono + IDLE_RETRY;
       this.schedule();
     }
   }
@@ -394,7 +441,7 @@ export class FeuxApp {
     if (!session || !this.running) return;
     const gone = () => session !== this.session || !this.running;
     const mono = this.monotonic();
-    if (mono < this.dueAt(mono)) return;
+    if (mono < this.dueAt(mono, { probe })) return;
     await this.loadHouses();
     if (gone()) return;
     if (this.housesError) {
@@ -410,6 +457,9 @@ export class FeuxApp {
       .filter((t) => t.house)
       .slice(0, MAX_HOUSES);
     if (targets.length === 0 && !probe) {
+      // Nothing to read (no device, or its house is gone): the houses are
+      // looked at again in a minute, never in a loop.
+      this.nextTryAt = mono + IDLE_RETRY;
       await this.updateStatus();
       return;
     }
@@ -463,9 +513,10 @@ export class FeuxApp {
   }
 
   /** What is global to one read: are the hotspot and perimeter layers fresh, the date of the danger map. */
-  async readLayers(now) {
+  async readLayers(now, gone) {
     const layers = { hotspots: undefined, perimeters: undefined, dangerDate: undefined };
     for (const kind of ['hotspots', 'perimeters']) {
+      if (gone()) return layers;
       try {
         const newest = await this.client.newest(kind);
         const maxAge = kind === 'hotspots' ? HOTSPOTS_MAX_AGE : PERIMETERS_MAX_AGE;
@@ -478,6 +529,7 @@ export class FeuxApp {
         layers[kind] = { error: err.message };
       }
     }
+    if (gone()) return layers;
     try {
       layers.dangerDate = await this.client.dangerDate();
     } catch (err) {
@@ -502,10 +554,13 @@ export class FeuxApp {
       mono - cached.readAt >= DANGER_REFRESH ||
       (date !== undefined && cached.date !== date)
     ) {
-      const areas = await this.client.dangerAreas(degreeBox(house, DANGER_BOX));
+      // The box sent is the 0.1-degree cell of the house, never finer.
+      const areas = await this.client.dangerAreas(cellOf(house));
       const area = areas.find((a) => containsPoint(a.geometry, house));
-      // On the map: any of its polygons near the house (a lake may be a gap of it).
-      const covered = areas.length > 0;
+      // On the map (Canada) only inside one of its polygons: the real map stops
+      // at the border, a US house next to it is outside. A gap of the map (a
+      // lake) is outside too: nothing is published rather than a false 0.
+      const covered = Boolean(area);
       cached = { key, date, readAt: mono, area: area && { code: area.code }, covered };
       this.dangerCache.set(house.selector, cached);
     }
@@ -529,7 +584,7 @@ export class FeuxApp {
     const radius = this.config.radiusKm;
     let layers;
     try {
-      layers = await this.readLayers(now);
+      layers = await this.readLayers(now, gone);
     } catch (err) {
       if (gone()) return;
       await this.failed(err);
@@ -542,13 +597,17 @@ export class FeuxApp {
       const { house } = target;
       const reading = {};
       try {
-        const box = boundingBox(house, radius);
+        // Every box is built from the 0.1-degree cell of the house only: crossing
+        // them tells nothing finer than the cell.
+        const cell = cellOf(house);
+        const box = cellBox(cell, radius);
         reading.hotspots = layers.hotspots.error
           ? { status: 'error', message: layers.hotspots.error }
           : !layers.hotspots.fresh
             ? { status: 'stale', newest: layers.hotspots.newest }
             : await this.part('hotspots', async () => {
                 const r = await this.client.hotspots(box);
+                checkComplete(r, 'hotspot');
                 return hotspotsPart(house, r.items, radius, { truncated: r.truncated });
               });
         if (gone()) return;
@@ -565,13 +624,14 @@ export class FeuxApp {
               ? { status: 'stale', newest: layers.perimeters.newest }
               : await this.part('perimeters', async () => {
                   const r = await this.client.perimeters(box, now - PERIMETER_ACTIVE);
+                  checkComplete(r, 'perimeter');
                   return perimetersPart(house, r.items, radius, { truncated: r.truncated });
                 });
         if (gone()) return;
         reading.station = await this.part('station', async () =>
           stationPart(
             house,
-            await this.client.stations(boundingBox(house, STATION_SEARCH_KM)),
+            await this.client.stations(cellBox(cell, STATION_SEARCH_KM)),
             now,
             STATION_SEARCH_KM,
           ),
@@ -587,7 +647,7 @@ export class FeuxApp {
       if (stopped) break;
     }
     for (const { target, reading } of results) {
-      await this.publish(target, reading, now);
+      await this.publish(target, reading, now, gone);
       if (gone()) return;
     }
     if (stopped) {
@@ -605,7 +665,8 @@ export class FeuxApp {
   }
 
   /** States, scene events and the memory of one house. */
-  async publish(target, reading, now) {
+  async publish(target, reading, now, gone = () => false) {
+    if (gone()) return;
     this.readings.set(target.deviceId, reading);
     await this.gladys
       .publishChangedStates(houseStates(target.deviceId, reading, this.config.radiusKm), {
@@ -617,8 +678,10 @@ export class FeuxApp {
       language: this.config.language,
       now,
     });
+    if (gone()) return;
     this.memories.set(target.deviceId, memory);
     for (const event of events) {
+      if (gone()) return;
       await this.gladys
         .publishSceneEvent(event.key, event.data)
         .catch((err) => this.logger.warn(`Scene event ${event.key} failed: ${err?.message}`));
@@ -656,36 +719,57 @@ export class FeuxApp {
       await this.setStatus(false, T.unreachable(outcome.message, next));
       return;
     }
-    let connected = false;
-    if (outcome?.kind === 'read') {
-      lines.push(T.read(outcome.results.length, outcome.at));
-      const notes = new Map();
-      for (const { target, reading } of outcome.results) {
-        lines.push(T.house(target.name, reading));
-        if (Object.values(reading).some((p) => p.status === 'ok')) connected = true;
-        const { hotspots, perimeters, danger } = reading;
-        if (hotspots.status === 'stale') notes.set('hs', T.hotspotsStale(hotspots.newest));
-        if (perimeters.status === 'stale') notes.set('pe', T.perimetersStale(perimeters.newest));
-        if (danger.status === 'stale') notes.set('ds', T.dangerStale(danger.date));
-        for (const [key, part] of Object.entries(reading)) {
-          if (part.status === 'error') notes.set(`e-${key}`, T.partFailed(key, part.message));
-        }
-      }
-      lines.push(...notes.values());
-      lines.push(T.caveat);
-    }
+    // What needs the user first: the status is bounded, the houses come last.
+    if (this.dataProblem) lines.push(T.data[this.dataProblem]);
     for (const t of targets) {
       if (!t.house) lines.push(T.orphan(t.name));
     }
     if (targets.filter((t) => t.house).length > MAX_HOUSES) {
       lines.push(T.tooManyHouses(MAX_HOUSES));
     }
+    const { lines: readLines, connected: anyOk } = this.readingLines(targets);
+    lines.push(...readLines);
+    let connected = anyOk;
     if (lines.length === 0) {
       // Not read yet in this session (a restart within the interval): not a failure.
       lines.push(T.test.notDue(now + Math.max(0, this.dueAt(mono) - mono)));
       connected = true;
     }
     await this.setStatus(connected, joinLines(lines));
+  }
+
+  /**
+   * The lines of the last read, for the houses still watched: its time, the
+   * reasons a part is not published, the caveat, then one line per house (the
+   * least needed last, the status being bounded).
+   */
+  readingLines(targets = this.targets()) {
+    const outcome = this.outcome;
+    if (outcome?.kind !== 'read') return { lines: [], connected: false };
+    const watched = new Set(targets.filter((t) => t.house).map((t) => t.deviceId));
+    const results = outcome.results.filter(({ target }) => watched.has(target.deviceId));
+    if (results.length === 0) return { lines: [], connected: false };
+    const notes = new Map();
+    let connected = false;
+    for (const { reading } of results) {
+      if (Object.values(reading).some((p) => p.status === 'ok')) connected = true;
+      const { hotspots, perimeters, danger } = reading;
+      if (hotspots.status === 'stale') notes.set('hs', T.hotspotsStale(hotspots.newest));
+      if (perimeters.status === 'stale') notes.set('pe', T.perimetersStale(perimeters.newest));
+      if (danger.status === 'stale') notes.set('ds', T.dangerStale(danger.date));
+      for (const [key, part] of Object.entries(reading)) {
+        if (part.status === 'error') notes.set(`e-${key}`, T.partFailed(key, part.message));
+      }
+    }
+    return {
+      lines: [
+        T.read(results.length, outcome.at),
+        ...notes.values(),
+        T.caveat,
+        ...results.map(({ target, reading }) => T.house(target.name, reading)),
+      ],
+      connected,
+    };
   }
 
   // --- Test button ------------------------------------------------------------------
@@ -699,7 +783,7 @@ export class FeuxApp {
       return T.notStarted;
     }
     const mono = this.monotonic();
-    if (mono >= this.dueAt(mono)) {
+    if (mono >= this.dueAt(mono, { probe: true })) {
       await this.tick({ probe: true });
       this.schedule();
     }
@@ -713,11 +797,7 @@ export class FeuxApp {
       return joinLines([T.test.probeOk(outcome.newest), next]);
     }
     if (outcome.kind === 'read') {
-      return joinLines([
-        T.read(outcome.results.length, outcome.at),
-        ...outcome.results.map(({ target, reading }) => T.house(target.name, reading)),
-        next,
-      ]);
+      return joinLines([next, ...this.readingLines().lines]);
     }
     if (outcome.kind === 'paused') {
       return T.paused(this.now() + this.pauseLeft(after), this.pause?.status ?? 429);

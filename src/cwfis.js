@@ -267,9 +267,10 @@ export class CwfisClient {
       { maxBytes: MAX_BODY.hotspots },
     );
     const { features, matched } = featuresOf(body, 'hotspots');
+    const parsed = features.map(parseHotspot);
     return {
-      items: features.map(parseHotspot).filter(Boolean),
-      unreadable: features.filter((f) => !parseHotspot(f)).length,
+      items: parsed.filter(Boolean),
+      unreadable: parsed.filter((h) => !h).length,
       truncated: matched !== undefined && matched > features.length,
     };
   }
@@ -285,14 +286,19 @@ export class CwfisClient {
       { maxBytes: MAX_BODY.perimeters },
     );
     const { features, matched } = featuresOf(body, 'perimeters');
-    const items = features.map(parsePerimeter).filter(Boolean);
+    const parsed = features.map(parsePerimeter);
+    const items = parsed.filter(Boolean);
     if (items.reduce((n, p) => n + vertexCount(p.geometry), 0) > MAX_VERTICES) {
       throw new SourceError('too_large', 'perimeters: too many vertices');
     }
-    return { items, truncated: matched !== undefined && matched > features.length };
+    return {
+      items,
+      unreadable: parsed.length - items.length,
+      truncated: matched !== undefined && matched > features.length,
+    };
   }
 
-  /** The fire weather stations in the box. */
+  /** The fire weather stations in the box: an unreadable record fails the read (never dropped). */
   async stations(box) {
     const layer = LAYERS.stations;
     const body = await this.request(
@@ -300,7 +306,11 @@ export class CwfisClient {
       { maxBytes: MAX_BODY.stations },
     );
     const { features } = featuresOf(body, 'stations');
-    return features.map(parseStation).filter(Boolean);
+    const items = features.map(parseStation);
+    if (items.some((s) => !s)) {
+      throw new SourceError('bad_answer', 'stations: unreadable record(s)');
+    }
+    return items;
   }
 
   /** The polygons of the fire danger map in the box. */
@@ -311,7 +321,11 @@ export class CwfisClient {
       { maxBytes: MAX_BODY.danger },
     );
     const { features } = featuresOf(body, 'danger');
-    const items = features.map(parseDangerArea).filter(Boolean);
+    const items = features.map(parseDangerArea);
+    // A polygon of an unknown class is an error, never a gap of the map.
+    if (items.some((a) => !a)) {
+      throw new SourceError('bad_answer', 'danger: unreadable polygon(s)');
+    }
     if (items.reduce((n, a) => n + vertexCount(a.geometry), 0) > MAX_VERTICES) {
       throw new SourceError('too_large', 'danger: too many vertices');
     }

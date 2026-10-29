@@ -1,7 +1,7 @@
 // -----------------------------------------------------------------------------
 // Geometry on the sphere: distance, bearing, compass point, the box sent to
-// the server (snapped outward to a coarse grid, so the exact house never
-// leaves Gladys), and the distance from a point to a (multi)polygon given in
+// the server (built from the 0.1-degree cell of the house only, so the exact
+// house never leaves Gladys, even by crossing several boxes), and the distance from a point to a (multi)polygon given in
 // GeoJSON longitude/latitude. Pure.
 // -----------------------------------------------------------------------------
 
@@ -48,34 +48,33 @@ const snapUp = (v) => Math.ceil(v / BOX_GRID - 1e-9) * BOX_GRID;
 const fixed = (v) => Number(v.toFixed(4));
 
 /**
- * The longitude/latitude box holding every point within `km` of `point`,
- * snapped OUTWARD to the BOX_GRID: what is sent to the server says where the
- * house is only to a tenth of a degree. Near a pole the box spans every
- * longitude. `{ west, south, east, north }`.
+ * The cell of the BOX_GRID holding the point: `{ west, south, east, north }`.
+ * It is all that is ever sent of a house.
  */
-export function boundingBox(point, km) {
+export function cellOf(point) {
+  const west = fixed(Math.min(180 - BOX_GRID, snapDown(point.longitude)));
+  const south = fixed(Math.min(90 - BOX_GRID, snapDown(point.latitude)));
+  return { west, south, east: fixed(west + BOX_GRID), north: fixed(south + BOX_GRID) };
+}
+
+/**
+ * The box holding every point within `km` of ANY point of the cell, snapped
+ * outward to the grid: built from the cell only, never from the house. Near a
+ * pole, or across the date line (the Aleutians), it spans every longitude.
+ */
+export function cellBox(cell, km) {
   const dLat = km / KM_PER_DEGREE;
-  const south = Math.max(-90, point.latitude - dLat);
-  const north = Math.min(90, point.latitude + dLat);
+  const south = Math.max(-90, cell.south - dLat);
+  const north = Math.min(90, cell.north + dLat);
   const widest = Math.max(Math.abs(south), Math.abs(north));
   const cos = Math.cos(rad(Math.min(89.9, widest)));
   const dLon = km / (KM_PER_DEGREE * cos);
-  const whole = widest >= 89.9 || dLon >= 180;
+  const whole = widest >= 89.9 || dLon >= 180 || cell.west - dLon < -180 || cell.east + dLon > 180;
   return {
-    west: whole ? -180 : fixed(Math.max(-180, snapDown(point.longitude - dLon))),
+    west: whole ? -180 : fixed(snapDown(cell.west - dLon)),
     south: fixed(Math.max(-90, snapDown(south))),
-    east: whole ? 180 : fixed(Math.min(180, snapUp(point.longitude + dLon))),
+    east: whole ? 180 : fixed(snapUp(cell.east + dLon)),
     north: fixed(Math.min(90, snapUp(north))),
-  };
-}
-
-/** A box of `degrees` each side of the point, snapped outward like boundingBox. */
-export function degreeBox(point, degrees) {
-  return {
-    west: fixed(Math.max(-180, snapDown(point.longitude - degrees))),
-    south: fixed(Math.max(-90, snapDown(point.latitude - degrees))),
-    east: fixed(Math.min(180, snapUp(point.longitude + degrees))),
-    north: fixed(Math.min(90, snapUp(point.latitude + degrees))),
   };
 }
 

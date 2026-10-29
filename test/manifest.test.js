@@ -14,7 +14,7 @@ import {
   DEVICE_FEATURE_TYPES as TYPES,
 } from '@gladysassistant/integration-sdk';
 import { DEFAULTS } from '../src/config.js';
-import { ACTIONS, DISTANCES, POLL, RADIUS, SCENE_TRIGGERS } from '../src/constants.js';
+import { ACTIONS, DISTANCES, POLL, RADIUS, SCENE_TRIGGERS, USER_AGENT } from '../src/constants.js';
 import { FEATURE } from '../src/devices.js';
 import { HOUSES, created } from './helpers/app.js';
 
@@ -48,6 +48,11 @@ test('the store basics; the same version everywhere (semver, never pinned by han
   assert.equal(lock.name, pkg.name);
   assert.equal(lock.packages[''].version, pkg.version);
   assert.equal(pkg.name, 'gladys-feux-canada');
+  // The User-Agent follows the version the release bumps.
+  assert.equal(
+    USER_AGENT,
+    `gladys-feux-canada/${pkg.version} (+https://github.com/LM1LC3N7/gladys-feux-canada)`,
+  );
   assert.match(pkg.dependencies['@gladysassistant/integration-sdk'], /^\^0\.16\./);
   assert.deepEqual(Object.keys(pkg.dependencies), ['@gladysassistant/integration-sdk']);
   assert.equal(pkg.scripts.test, 'node --test --test-timeout=60000');
