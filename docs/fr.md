@@ -1,67 +1,131 @@
-# Template de démonstration
+# Feux de forêt au Canada (SCIFV, RNCan) pour Gladys
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Connecteur **non officiel**, sans lien avec Ressources naturelles Canada. Il lit
+les couches publiques du **Système canadien d'information sur les feux de
+végétation** (SCIFV, `cwfis.cfs.nrcan.gc.ca`), sans compte ni clé, et donne pour
+chaque maison localisée de Gladys :
 
-## Ce que vous obtenez
+| Fonction                        | Ce que c'est                                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Points chauds satellite (24 h)  | nombre de détections de chaleur des dernières 24 heures dans le rayon                                         |
+| Point chaud le plus proche (km) | sa distance ; s'il n'y en a aucun dans le rayon, **le rayon lui-même** (« aucun plus proche »), jamais 0      |
+| Périmètres de feu actifs        | périmètres estimés (couche M3) touchés par un point chaud depuis 72 h, dans le rayon (Canada seulement)       |
+| Périmètre actif le plus proche  | distance à son contour, 0 si la maison est dedans ; sans périmètre, le rayon                                  |
+| Indice forêt-météo (IFM)        | l'IFM (FWI) de la station météo-feu la plus proche avec un relevé de moins de 36 h, à 200 km au plus, arrondi |
+| Station météo-feu               | nom, province, distance et heure du relevé de cette station                                                   |
+| Danger d'incendie               | classe de la carte nationale à la maison : 1 bas, 2 modéré, 3 élevé, 4 très élevé, 5 extrême (Canada)         |
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Et deux déclencheurs de scène : **point chaud à moins d'une distance** et
+**danger d'incendie en hausse**.
 
-## Configuration
+**Les points chauds sont des détections de chaleur par satellite, pas des feux
+confirmés** : une torchère, une usine, un brûlage agricole en donnent aussi, et
+leur heure a quelques heures de retard sur le passage du satellite. La couche
+couvre l'Amérique du Nord ; les périmètres et la carte du danger couvrent le
+Canada. C'est une information, pas un système d'alerte ni d'évacuation : suivez
+les consignes de votre province et de votre municipalité.
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+Jamais testé avec un vrai appareil (il n'y en a pas : c'est un service public).
+Le module a été essayé contre le vrai service le 2026-10-29 (Fredericton,
+Kamloops, Portland) et ses tests rejouent des réponses réelles de ce jour-là.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+Contient des informations visées par la Licence du gouvernement ouvert – Canada
+(Ressources naturelles Canada, SCIFV).
 
-## Actions
+## Installation
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+1. Installez l'intégration depuis le magasin de Gladys. Elle demande l'accès à
+   la **position des maisons** (Paramètres > Maisons) : c'est ce qui place les
+   maisons sur la carte.
+2. Renseignez la position d'au moins une maison dans Gladys.
+3. Facultatif : changez le **rayon** (50 km par défaut, de 5 à 300 km),
+   l'**intervalle de lecture** (30 minutes par défaut, de 15 à 180) et la
+   **langue** des noms d'appareils et des directions.
+4. Ouvrez la **Découverte** : une maison localisée y est proposée (5 au plus).
+   Créez l'appareil : les lectures commencent alors, à la prochaine échéance.
 
-## Scènes
+## Ce qui est lu, et quand
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+À chaque lecture, une requête à la fois, une seconde au moins entre deux :
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+- la date du point chaud le plus récent de toute la couche, et de la dernière
+  mise à jour des périmètres : la fraîcheur des deux couches ;
+- la date de la carte du danger (légende du serveur cartographique) ;
+- pour chaque maison qui a son appareil : les points chauds et les périmètres
+  dans une boîte qui contient le rayon, les stations à 200 km, et la carte du
+  danger autour de la maison (relue avec une nouvelle date de carte, ou après
+  6 heures).
 
-## Tableau de bord
+Votre position exacte n'est pas envoyée : les boîtes sont arrondies vers
+l'extérieur au dixième de degré, et les distances sont calculées dans Gladys.
+Le serveur ne propose ni `ETag` ni `Last-Modified` : l'intervalle est le seul
+frein, et la lecture suivante ne part pas plus tôt que l'intervalle, ni après
+un redémarrage (l'heure de la dernière lecture est gardée dans `/data`), ni
+par le bouton **Tester**, la Découverte ou la création d'un appareil.
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+## Pas de valeur inventée
+
+- Couche des points chauds vide, ou point chaud le plus récent de plus de 18 h :
+  la source est muette ou périmée, les points chauds ne sont **pas publiés** (ni 0) et le statut le dit.
+- Périmètres sans mise à jour depuis 7 jours (fin de saison) : non publiés.
+  Maison hors de la carte du danger (hors du Canada) : ni périmètres ni danger.
+- Aucune station avec un relevé de moins de 36 h et un IFM à 200 km : IFM et
+  station non publiés (hors saison, de novembre à mars, c'est le cas normal).
+- Carte du danger datée de plus de 2 jours : danger non publié. Si sa date est
+  illisible, la carte est lue quand même (une date inconnue ne la rend pas
+  périmée).
+- Une partie qui échoue (erreur HTTP, réponse trop grosse, rapport d'erreur du
+  serveur) n'empêche pas les autres d'être lues et publiées.
+- Les valeurs qui n'ont pas changé sont renvoyées toutes les 3 heures, pour
+  rester datées.
+
+## Déclencheurs de scène
+
+- **Point chaud à moins d'une distance** (5 à 300 km) : un point chaud apparaît
+  plus près que la distance choisie alors qu'il n'y en avait aucun à la lecture
+  précédente. Une seule fois par épisode : il se réarme après deux lectures de
+  suite sans aucun point chaud à cette distance. Au-delà du rayon de la
+  configuration, c'est le rayon qui compte. Variables : distance (km), direction
+  (N, NE...), cap, nombre, heure de la détection, satellite.
+- **Danger d'incendie en hausse** : la classe atteint le niveau choisi (modéré,
+  élevé, très élevé, extrême) en venant d'en dessous ; un saut de bas à élevé
+  déclenche « modéré » et « élevé ». Variables : niveau actuel et son nom,
+  niveau précédent, IFM de la station, date de la carte.
+
+Rien ne se déclenche à la première lecture d'une maison (pas de valeur d'avant
+connue). La mémoire des déclencheurs est gardée dans `/data` 48 heures, ce qui
+permet à un redémarrage de voir une hausse survenue entre-temps.
+
+## Statut
+
+Le statut de la page de configuration dit l'heure de la dernière lecture, ce qui
+a été lu pour chaque maison, ce qui ne l'a pas été et pourquoi (couche périmée,
+hors saison, hors du Canada, erreur), et rappelle que les points chauds ne sont
+pas des feux confirmés. Le serveur qui demande d'attendre (HTTP 429 ou 5xx) met
+les lectures en pause de 1 minute à 6 heures (doublée à chaque fois, ou le
+`Retry-After` s'il est plus long), pause gardée dans `/data`. Serveur
+injoignable : nouvel essai à l'intervalle suivant.
+
+Le bouton **Tester** lit tout de suite si une lecture est due, sinon il montre
+la dernière et l'heure de la suivante. Sans appareil créé, il fait une seule
+petite requête (la fraîcheur des points chauds), comptée comme la lecture.
 
 ## Dépannage
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+- **« Aucune maison localisée »** : renseignez la position d'une maison dans
+  Gladys (Paramètres > Maisons), puis relancez la Découverte.
+- **« Les maisons de Gladys n'ont pas pu être lues »** : l'accès à la position
+  a été refusé à l'intégration ; nouvel essai chaque minute, sans requête au
+  SCIFV.
+- **IFM absent en hiver** : normal, les stations météo-feu ne publient que
+  pendant la saison des feux.
+
+## Données et licence
+
+Source : Ressources naturelles Canada, Système canadien d'information sur les
+feux de végétation (<https://cwfis.cfs.nrcan.gc.ca/>), couches WFS
+`hotspots_last24hrs`, `m3_polygons_current`, `firewx_stns_current`,
+`fdr_current_shp`. Licence du gouvernement ouvert – Canada
+(<https://ouvert.canada.ca/fr/licence-du-gouvernement-ouvert-canada>).
+L'intégration s'annonce au serveur sous son nom (`User-Agent:
+gladys-feux-canada/0.1.0`), jamais comme un navigateur.

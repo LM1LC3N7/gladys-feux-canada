@@ -5,11 +5,15 @@ contributors.
 
 ## What this is
 
-A Gladys Assistant **external integration**: a Node.js service (Node 22+, ESM,
-no build step) that runs in its own sandboxed Docker container and talks to
-Gladys through
-[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
-its only runtime dependency. It started from the official JavaScript template.
+A Gladys Assistant **external integration** of type `device`: a Node.js
+service (Node 22+, ESM, no build step) in its own sandboxed Docker container,
+talking to Gladys through `@gladysassistant/integration-sdk` (v0.16), its only
+runtime dependency. It reads the public WFS of the **CWFIS** (Canadian Wildland
+Fire Information System, Natural Resources Canada, no key, Open Government
+Licence - Canada) and turns it into one read-only device per located house of
+Gladys (`location: true`): satellite hotspots of the last 24 h, active fire
+perimeters, the FWI of the nearest station and the fire danger class, plus two
+scene triggers. Unofficial. Hotspots are heat detections, not confirmed fires.
 
 ## Commands
 
@@ -31,18 +35,40 @@ pushing.
 ## Architecture
 
 ```
-index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
-src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
-src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
-gladys-assistant-integration.json manifest: name, config_schema, actions, image...
-docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
-test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
-.github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
+index.js              SDK wiring only (handlers registered before connect())
+src/app.js            FeuxApp: lifecycle (getConfig retried), houses, Discovery,
+                      the read loop (one timer, monotonic), parts, pause, status,
+                      test button
+src/cwfis.js          the GeoServer client: URLs, one request at a time and
+                      spaced, strict reading of the features
+src/http.js           the only network access (timeout, User-Agent, byte budget)
+src/geo.js            distance, bearing, boxes rounded outward, point in polygon
+src/model.js          raw features -> parts of a reading (pure)
+src/devices.js        devices, feature keys, states (pure)
+src/triggers.js       readings -> scene events, the memory kept in /data (pure)
+src/store.js          /data (time of the last read, pause, trigger memory)
+src/config.js         config_schema normalized
+src/constants.js      endpoints, layers, limits, freshness, manifest keys
+src/i18n.js           feature names, danger classes, status texts (en/fr)
+test/fixtures/        real answers of the service (2026-10-29)
+test/helpers/app.js   fake CWFIS (fixtures by layer), virtual clock, fake Gladys
+test/kit/clock.mjs    clocks of gladys-testkit (virtual and real)
+scripts/cover.mjs     cover.png (800x534), plain Node
 ```
+
+## Known facts of the source (2026-10-29)
+
+- GeoServer, WFS 2.0.0, `outputFormat=application/json`, `srsName=EPSG:4326`.
+  CQL `BBOX(geom,west,south,east,north,'EPSG:4326')` is longitude first. An
+  error is an XML `ExceptionReport` with status 200.
+- `hotspots_last24hrs`: North America, `lat`/`lon`/`rep_date`, stable ids,
+  newest a few hours behind. `m3_polygons_current`: Canada, the whole season,
+  `lastdate` of the last hotspot. `firewx_stns_current`: ids change at each
+  request (use `aes`), names padded and with '+' for spaces, no report out of
+  season. `fdr_current_shp`: Canada, `GRIDCODE` 0-4 = Low..Extreme, no date
+  (the WMS legend of `fdr_current` ends with it).
+- No ETag, no Last-Modified, no documented rate limit: one request at a time,
+  a second apart, every 30 minutes by default.
 
 ## Rules
 
@@ -54,6 +80,9 @@ test/                             node --test, against the SDK's fake Gladys (in
   manifest `config_schema`, `actions`, widget and scene keys, feature keys.
 - **The container rootfs is read-only.** Write only under `/data`, the one
   writable volume. Never log tokens, passwords or API keys.
+- **Never publish an unknown as 0**: a stale, silent, failed or uncovered part
+  is not published and is said in the status.
+- **Never read sooner than the interval** (restart, Discovery, test button).
 - **Versions belong to the Release workflow** (Actions → Release). Never edit
   `version` in `package.json` or in the manifest, nor the `docker_image` tag,
   by hand — except on the README's hand-pushed tag path, which bumps all three

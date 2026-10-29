@@ -1,177 +1,382 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Canada wildfires",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Unofficial: wildfires near your home in Canada, fire weather index and danger (NRCan).",
+    "fr": "Non officiel : feux de forêt près de chez vous au Canada, indice forêt-météo, danger (RNCan)."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-feux-canada:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-feux-canada/main/cover.png",
+  "categories": ["environment"],
+  "transports": ["cloud"],
+  "location": true,
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": {
+        "en": "Wildfires around your houses",
+        "fr": "Les feux de forêt autour de vos maisons"
+      },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Unofficial, not affiliated with Natural Resources Canada. Reads the public CWFIS layers (no account, no key): one device per located house with the satellite hotspots of the last 24 h within the radius, active fire perimeters, the Fire Weather Index (FWI) of the nearest station and the fire danger class (Canada), plus two scene triggers. Hotspots are heat detections, not confirmed fires, a few hours late. Information only, never an evacuation system: follow the orders of your province. Off season (November to March) the layers are stale or empty: the status says so, nothing is published as 0. Your exact location is never sent. Contains information licensed under the Open Government Licence - Canada. Never tested with a real device (a public service), tried against the real service.",
+        "fr": "Non officiel, sans lien avec Ressources naturelles Canada. Lit les couches publiques du SCIFV (sans compte ni clé) : un appareil par maison localisée avec les points chauds satellite des dernières 24 h dans le rayon, les périmètres de feu actifs, l’indice forêt-météo (IFM) de la station la plus proche et la classe de danger (Canada), et deux déclencheurs de scène. Les points chauds sont des détections de chaleur, pas des feux confirmés, avec quelques heures de retard. Information seulement, jamais un système d’évacuation : suivez les consignes de votre province. Hors saison (novembre à mars), les couches sont périmées ou vides : le statut le dit, rien n’est publié à 0. Votre position exacte n’est jamais envoyée. Contient des informations visées par la Licence du gouvernement ouvert - Canada. Jamais testé avec un vrai appareil (un service public), essayé contre le vrai service."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://cwfis.cfs.nrcan.gc.ca/",
+          "label": {
+            "en": "CWFIS (Natural Resources Canada)",
+            "fr": "SCIFV (Ressources naturelles Canada)"
+          }
+        },
+        {
+          "url": "https://open.canada.ca/en/open-government-licence-canada",
+          "label": {
+            "en": "Open Government Licence - Canada",
+            "fr": "Licence du gouvernement ouvert - Canada"
+          }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-feux-canada/blob/main/docs/fr.md",
+          "label": {
+            "en": "Guide (French)",
+            "fr": "Guide (français)"
+          }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-feux-canada/blob/main/docs/en.md",
+          "label": {
+            "en": "Guide (English)",
+            "fr": "Guide (anglais)"
+          }
         }
       ]
     },
     {
-      "key": "latitude",
+      "key": "radius_km",
       "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
+      "label": {
+        "en": "Radius around the house (km)",
+        "fr": "Rayon autour de la maison (km)"
       },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
-      "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
+      "description": {
+        "en": "Only the hotspots and perimeters closer than this count. With none, the distance shown is the radius itself (\"none closer\"). The \"hotspot within X km\" trigger cannot see beyond it.",
+        "fr": "Seuls les points chauds et périmètres plus proches comptent. S'il n'y en a aucun, la distance affichée est le rayon lui-même (« aucun plus proche »). Le déclencheur « point chaud à moins de X km » ne voit pas au-delà."
+      },
+      "required": false,
+      "default": 50,
+      "min": 5,
+      "max": 300
     },
     {
-      "key": "longitude",
+      "key": "poll_minutes",
       "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
+      "label": {
+        "en": "Read interval (minutes)",
+        "fr": "Intervalle de lecture (minutes)"
       },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
+      "description": {
+        "en": "The hotspots are updated several times a day, the danger and the FWI once a day: 30 minutes is plenty. One request at a time, a few per house.",
+        "fr": "Les points chauds sont mis à jour plusieurs fois par jour, le danger et l'IFM une fois par jour : 30 minutes suffisent. Une requête à la fois, quelques-unes par maison."
+      },
+      "required": false,
+      "default": 30,
+      "min": 15,
       "max": 180
     },
     {
-      "key": "unit",
+      "key": "language",
       "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
-      "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
-    },
-    {
-      "key": "poll_frequency",
-      "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
+      "label": {
+        "en": "Language of the device names and directions",
+        "fr": "Langue des noms d'appareils et des directions"
+      },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "The names of the devices offered in Discovery, and the direction of the nearest hotspot in the scenes (N, NE, E... English: W for west).",
+        "fr": "Les noms des appareils proposés dans la Découverte, et la direction du point chaud le plus proche dans les scènes (N, NE, E... français : O pour ouest)."
       },
       "required": false,
-      "default": 300,
-      "min": 60,
-      "max": 3600
+      "default": "fr",
+      "options": [
+        {
+          "value": "fr",
+          "label": {
+            "en": "French",
+            "fr": "Français"
+          }
+        },
+        {
+          "value": "en",
+          "label": {
+            "en": "English",
+            "fr": "Anglais"
+          }
+        }
+      ]
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
-      "timeout_seconds": 30
-    },
-    {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
+      "key": "test_connection",
+      "label": {
+        "en": "Test",
+        "fr": "Tester"
+      },
+      "description": {
+        "en": "Reads now if a read is due, else shows the last one and the time of the next: never sooner than the interval.",
+        "fr": "Lit maintenant si une lecture est due, sinon montre la dernière et l'heure de la suivante : jamais plus tôt que l'intervalle."
+      },
+      "timeout_seconds": 120
     }
   ],
   "scene_triggers": [
     {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
+      "key": "hotspot_nearby",
+      "label": {
+        "en": "Wildfire hotspot within a distance",
+        "fr": "Point chaud à moins d'une distance"
+      },
       "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
+        "en": "A satellite hotspot of the last 24 h closer than the chosen distance, where there was none at the previous read: once per episode, again after two reads in a row without any. A hotspot is a heat detection, not a confirmed fire. Beyond the radius of the configuration, the radius applies.",
+        "fr": "Un point chaud satellite des dernières 24 h plus proche que la distance choisie, là où il n'y en avait aucun à la lecture précédente : une fois par épisode, à nouveau après deux lectures de suite sans aucun. Un point chaud est une détection de chaleur, pas un feu confirmé. Au-delà du rayon de la configuration, c'est le rayon qui compte."
       },
       "fields": [
         {
-          "key": "device",
+          "key": "house",
           "type": "select",
           "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
+          "required": true,
+          "label": {
+            "en": "House",
+            "fr": "Maison"
+          }
         },
         {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
+          "key": "distance",
+          "type": "select",
+          "required": true,
+          "label": {
+            "en": "Within",
+            "fr": "À moins de"
+          },
           "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
+            {
+              "value": "5",
+              "label": {
+                "en": "5 km",
+                "fr": "5 km"
+              }
+            },
+            {
+              "value": "10",
+              "label": {
+                "en": "10 km",
+                "fr": "10 km"
+              }
+            },
+            {
+              "value": "20",
+              "label": {
+                "en": "20 km",
+                "fr": "20 km"
+              }
+            },
+            {
+              "value": "30",
+              "label": {
+                "en": "30 km",
+                "fr": "30 km"
+              }
+            },
+            {
+              "value": "50",
+              "label": {
+                "en": "50 km",
+                "fr": "50 km"
+              }
+            },
+            {
+              "value": "100",
+              "label": {
+                "en": "100 km",
+                "fr": "100 km"
+              }
+            },
+            {
+              "value": "200",
+              "label": {
+                "en": "200 km",
+                "fr": "200 km"
+              }
+            },
+            {
+              "value": "300",
+              "label": {
+                "en": "300 km",
+                "fr": "300 km"
+              }
+            }
           ]
         }
       ],
       "variables": [
         {
-          "key": "target",
+          "key": "km",
+          "type": "number",
+          "label": {
+            "en": "Distance of the nearest hotspot (km)",
+            "fr": "Distance du point chaud le plus proche (km)"
+          }
+        },
+        {
+          "key": "direction",
           "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
+          "label": {
+            "en": "Direction (N, NE...)",
+            "fr": "Direction (N, NE...)"
+          }
+        },
+        {
+          "key": "bearing",
+          "type": "number",
+          "label": {
+            "en": "Bearing (degrees from north)",
+            "fr": "Cap (degrés depuis le nord)"
+          }
+        },
+        {
+          "key": "count",
+          "type": "number",
+          "label": {
+            "en": "Hotspots within the distance",
+            "fr": "Points chauds dans la distance"
+          }
+        },
+        {
+          "key": "detected_at",
+          "type": "string",
+          "label": {
+            "en": "Time of the detection (ISO, UTC)",
+            "fr": "Heure de la détection (ISO, UTC)"
+          }
+        },
+        {
+          "key": "satellite",
+          "type": "string",
+          "label": {
+            "en": "Satellite",
+            "fr": "Satellite"
+          }
         }
       ]
-    }
-  ],
-  "scene_actions": [
+    },
     {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
+      "key": "fire_danger_raised",
+      "label": {
+        "en": "Fire danger raised",
+        "fr": "Danger d'incendie en hausse"
       },
-      "timeout_seconds": 15,
+      "description": {
+        "en": "The fire danger class of the national map at the house reaches the chosen level, coming from below it (never at the first read). Canada only.",
+        "fr": "La classe de danger d'incendie de la carte nationale à la maison atteint le niveau choisi, en venant d'en dessous (jamais à la première lecture). Canada seulement."
+      },
       "fields": [
         {
-          "key": "device",
+          "key": "house",
           "type": "select",
           "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
+          "required": true,
+          "label": {
+            "en": "House",
+            "fr": "Maison"
+          }
+        },
+        {
+          "key": "level",
+          "type": "select",
+          "required": true,
+          "label": {
+            "en": "Level reached",
+            "fr": "Niveau atteint"
+          },
+          "options": [
+            {
+              "value": "2",
+              "label": {
+                "en": "Moderate",
+                "fr": "Modéré"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "High",
+                "fr": "Élevé"
+              }
+            },
+            {
+              "value": "4",
+              "label": {
+                "en": "Very high",
+                "fr": "Très élevé"
+              }
+            },
+            {
+              "value": "5",
+              "label": {
+                "en": "Extreme",
+                "fr": "Extrême"
+              }
+            }
+          ]
         }
       ],
-      "outputs": [
+      "variables": [
         {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
+          "key": "current_level",
+          "type": "number",
+          "label": {
+            "en": "Current level (1-5)",
+            "fr": "Niveau actuel (1-5)"
+          }
+        },
+        {
+          "key": "level_name",
+          "type": "string",
+          "label": {
+            "en": "Name of the current level",
+            "fr": "Nom du niveau actuel"
+          }
+        },
+        {
+          "key": "previous_level",
+          "type": "number",
+          "label": {
+            "en": "Previous level (1-5)",
+            "fr": "Niveau précédent (1-5)"
+          }
+        },
+        {
+          "key": "fwi",
+          "type": "number",
+          "label": {
+            "en": "Fire Weather Index of the nearest station",
+            "fr": "Indice forêt-météo de la station la plus proche"
+          }
+        },
+        {
+          "key": "map_date",
+          "type": "string",
+          "label": {
+            "en": "Date of the map",
+            "fr": "Date de la carte"
+          }
         }
       ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
     }
   ]
 }
