@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-30
+
 ### Added
 
 - One device per located house of Gladys: satellite hotspots of the last 24 h
@@ -39,3 +41,6 @@ the notes of the version's GitHub Release.
   fire). Two requests are a full second apart even when a timer fires early,
   and a read timer firing a few ms early no longer delays the read by a
   minute.
+
+[Unreleased]: https://github.com/LM1LC3N7/gladys-feux-canada/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-feux-canada/releases/tag/v0.1.1

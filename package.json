@@ -1,6 +1,6 @@
 {
   "name": "gladys-feux-canada",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Wildfires near your home in Canada for Gladys Assistant: satellite hotspots, active fire perimeters, Fire Weather Index and fire danger from the CWFIS of Natural Resources Canada, with scene triggers. Unofficial.",
   "type": "module",
