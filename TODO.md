@@ -105,3 +105,9 @@
 - A dashboard widget (map of the hotspots around the house, nearest fires).
 - The danger forecast of the next days (NAEFS / SCRIBE layers `fdr_*`).
 - `countries` when the store takes it.
+
+## Next patch (review r4, 8c90064)
+
+- m1: an incomplete read with a readable hotspot keeps the old "nearest" value next to the new count until the next complete read.
+- m2: a first read with missing records marks the zone quiet; a later hotspot gives a late first alert (documented).
+- m3: an unknown count leaves the previous value on the dashboard, like any stale part.
