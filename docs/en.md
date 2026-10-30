@@ -52,8 +52,10 @@ At each read, one request at a time, at least a second between two:
 - with no device created, or when the house of a device is gone, nothing is
   sent: the houses of Gladys are looked at again every minute;
 - for each house with its device: the hotspots and perimeters in a box holding
-  the radius, the stations within 200 km, and the danger map around the house
-  (read again with a new map date, or after 6 hours).
+  the radius, the stations within 200 km, and the danger map within 25 km of
+  the cell of the house (read again with a new map date, or after 6 hours).
+  For a house outside Canada, neither the perimeters nor the danger map are
+  asked.
 
 Your exact location is not sent: every box is built from the 0.1° × 0.1° cell
 holding the house only (about 11 km × 7 km), so that crossing them tells
@@ -69,15 +71,27 @@ the creation of a device.
 - Hotspot layer empty, or its newest hotspot over 18 h old: the source is
   silent or stale, the hotspots are **not published** (not 0 either) and the
   status says so.
-- Perimeters not updated for 7 days (season over): not published. House off
-  the danger map (outside Canada): neither perimeters nor danger. A house is on
-  the map only inside one of its polygons: the map stops at the border, so a US
-  house next to it gets no perimeter (nothing rather than a false 0); a house
-  in a gap of the map (a large lake) is treated the same way.
-- An unreadable record (a field renamed, a date without zone, an unknown danger
-  class) or an answer cut at its page size (over 20,000 hotspots, 500
-  perimeters): the part is not published, the status says why, never a partial
-  count.
+- Perimeters not updated for 7 days (season over): not published.
+- The perimeters and the danger map cover Canada only. "In Canada" is decided
+  in Gladys, on a bundled outline of Canada and the United States (Natural
+  Earth 1:10m, public domain, simplified: 217 KB): exact along the 49th
+  parallel, and elsewhere a house within 1 km of the border (the St. Croix,
+  Detroit, St. Clair, Niagara, St. Lawrence, St. Marys and Rainy rivers;
+  Stanstead) is "cannot tell". Outside Canada or in doubt: neither perimeters
+  nor danger (nothing rather than a false 0), and the status says why. A
+  Canadian shore (within 10 km of the outline) counts as Canada.
+- Danger class: that of the area of the map holding the house, else that of
+  the nearest area within 25 km (the map leaves out shores and large cities:
+  Toronto is 1.5 km from the nearest area, Montréal 0.4 km), its distance said
+  in the status. Beyond 25 km (the far North may be uncovered, Iqaluit for
+  instance): no class, and the status says so.
+- An unreadable record (a field renamed, a date without zone, a geometry
+  without outline, an unknown danger class) or an answer cut at its page size:
+  for the perimeters and the danger map, the part is not published and the
+  status says why. For the hotspots, up to a tenth of unreadable records, or
+  over 20,000 hotspots in the box, the readable ones are published as a
+  **minimum** ("at least N" in the status) and the nearest is not published;
+  beyond a tenth, nothing.
 - No station with a report under 36 h old and an FWI within 200 km: FWI and
   station not published (off season, November to March, this is the normal
   case).

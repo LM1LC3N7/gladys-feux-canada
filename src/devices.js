@@ -120,7 +120,8 @@ export function houseStates(deviceId, reading, radiusKm) {
   const { hotspots, perimeters, station, danger } = reading;
   if (hotspots?.status === 'ok') {
     put(FEATURE.HOTSPOTS, hotspots.count);
-    put(FEATURE.NEAREST_HOTSPOT, hotspots.nearestKm ?? radiusKm);
+    // Records missing: the count is a minimum (said in the status), the nearest unknown.
+    if (!hotspots.incomplete) put(FEATURE.NEAREST_HOTSPOT, hotspots.nearestKm ?? radiusKm);
   }
   if (perimeters?.status === 'ok') {
     put(FEATURE.PERIMETERS, perimeters.count);

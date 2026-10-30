@@ -55,8 +55,9 @@ Contient des informations visées par la Licence du gouvernement ouvert – Cana
   envoyé : les maisons de Gladys sont regardées de nouveau chaque minute ;
 - pour chaque maison qui a son appareil : les points chauds et les périmètres
   dans une boîte qui contient le rayon, les stations à 200 km, et la carte du
-  danger autour de la maison (relue avec une nouvelle date de carte, ou après
-  6 heures).
+  danger à 25 km autour de la case de la maison (relue avec une nouvelle date de
+  carte, ou après 6 heures). Pour une maison hors du Canada, ni les périmètres
+  ni la carte du danger ne sont demandés.
 
 Votre position exacte n'est pas envoyée : toutes les boîtes sont construites à
 partir de la seule case de 0,1° × 0,1° qui contient la maison (environ 11 km ×
@@ -73,15 +74,28 @@ par le bouton **Tester**, la Découverte ou la création d'un appareil.
 - Couche des points chauds vide, ou point chaud le plus récent de plus de 18 h :
   la source est muette ou périmée, les points chauds ne sont **pas publiés** (ni 0) et le statut le dit.
 - Périmètres sans mise à jour depuis 7 jours (fin de saison) : non publiés.
-  Maison hors de la carte du danger (hors du Canada) : ni périmètres ni danger.
-  Une maison n'est sur la carte que dans un de ses polygones : la carte
-  s'arrête à la frontière, une maison américaine juste à côté n'a donc pas de
-  périmètres (rien plutôt qu'un faux 0) ; une maison dans un trou de la carte
-  (un grand lac) est traitée de même.
-- Un enregistrement illisible (champ renommé, date sans fuseau, classe de
-  danger inconnue) ou une réponse coupée à sa taille de page (plus de 20 000
-  points chauds, 500 périmètres) : la partie n'est pas publiée, le statut dit
-  pourquoi, jamais un décompte partiel.
+- Les périmètres et la carte du danger couvrent le Canada seulement. « Au
+  Canada » est décidé dans Gladys, sur un contour du Canada et des États-Unis
+  embarqué (Natural Earth 1:10m, domaine public, simplifié : 217 Ko) : exact le
+  long du 49e parallèle, et une maison à moins de 1 km de la frontière ailleurs
+  (rivières Sainte-Croix, Détroit, Saint-Clair, Niagara, Saint-Laurent,
+  Sainte-Marie, à la Pluie ; Stanstead) est « impossible à dire ». Hors du
+  Canada ou dans le doute : ni périmètres ni danger (rien plutôt qu'un faux 0),
+  et le statut dit pourquoi. Une rive canadienne (à moins de 10 km du contour)
+  compte comme le Canada.
+- Classe de danger : celle de la zone de la carte qui contient la maison, sinon
+  celle de la zone la plus proche à moins de 25 km (la carte laisse de côté les
+  rives et les grandes villes : Toronto est à 1,5 km de la zone la plus proche,
+  Montréal à 0,4 km), la distance étant dite dans le statut. Au-delà de 25 km
+  (le Grand Nord peut ne pas être couvert, Iqaluit par exemple) : pas de classe,
+  et le statut le dit.
+- Un enregistrement illisible (champ renommé, date sans fuseau, géométrie sans
+  contour, classe de danger inconnue) ou une réponse coupée à sa taille de page :
+  pour les périmètres et la carte du danger, la partie n'est pas publiée et le
+  statut dit pourquoi. Pour les points chauds, jusqu'à un dixième
+  d'enregistrements illisibles, ou plus de 20 000 points chauds dans la boîte,
+  les points lisibles sont publiés comme un **minimum** (« au moins N » dans le
+  statut) et le plus proche n'est pas publié ; au-delà d'un dixième, rien.
 - Aucune station avec un relevé de moins de 36 h et un IFM à 200 km : IFM et
   station non publiés (hors saison, de novembre à mars, c'est le cas normal).
 - Carte du danger datée de plus de 2 jours : danger non publié. Si sa date est

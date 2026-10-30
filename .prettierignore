@@ -3,3 +3,4 @@ package-lock.json
 data/
 *.log
 test/fixtures/
+src/outline.json

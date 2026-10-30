@@ -248,21 +248,21 @@ test('the station part: the nearest fresh one with an FWI, else none', () => {
   assert.equal(stationPart(home, [], NOW, 200).status, 'none');
 });
 
-test('the danger part: level 1-5, stale map, off the map', () => {
-  assert.deepEqual(dangerPart({ code: 2 }, { date: '2026-10-29', now: NOW }), {
+test('the danger part: level 1-5, the distance of the nearest area, stale map, none near', () => {
+  assert.deepEqual(dangerPart({ code: 2, km: 0 }, { date: '2026-10-29', now: NOW }), {
     status: 'ok',
     level: 3,
+    km: 0,
     date: '2026-10-29',
-    covered: true,
   });
-  assert.equal(dangerPart({ code: 2 }, { date: '2026-10-27', now: NOW }).status, 'ok');
-  assert.equal(dangerPart({ code: 2 }, { date: '2026-10-26', now: NOW }).status, 'stale');
+  assert.equal(dangerPart({ code: 2, km: 4 }, { date: '2026-10-27', now: NOW }).km, 4);
+  assert.equal(dangerPart({ code: 2, km: 0 }, { date: '2026-10-26', now: NOW }).status, 'stale');
   assert.equal(
-    dangerPart({ code: 2 }, { date: undefined, now: NOW }).status,
+    dangerPart({ code: 2, km: 0 }, { date: undefined, now: NOW }).status,
     'ok',
     'no date is never stale',
   );
-  assert.equal(dangerPart(undefined, { now: NOW }).covered, false);
+  assert.equal(dangerPart(undefined, { now: NOW }).status, 'none');
   assert.equal(mapAgeDays('2026-10-29', Date.parse('2026-10-29T23:59:00Z')), 0);
   assert.equal(mapAgeDays('2026-10-28', Date.parse('2026-10-29T00:01:00Z')), 1);
 });

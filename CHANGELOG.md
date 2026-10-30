@@ -28,3 +28,8 @@ the notes of the version's GitHub Release.
   the stop, and is said in the status.
 - Unreadable or cut answers are never published as a count; a US house near
   the border is not counted as on the Canadian map.
+- "In Canada" is decided on a bundled outline of Canada and the United States
+  (Natural Earth, public domain): Canadian cities and shores get their
+  perimeters and the danger class of the nearest area of the map (within
+  25 km), US houses by the border get neither; a few unreadable hotspot
+  records, or a cut answer, publish the hotspots as a minimum.

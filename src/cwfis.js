@@ -103,7 +103,8 @@ export function parsePerimeter(feature) {
   const p = feature.properties;
   const lastAt = strictDate(p.lastdate);
   const geometry = feature.geometry;
-  if (lastAt === undefined || !geometry || typeof geometry !== 'object') {
+  // A geometry without any ring (a point, an empty polygon) is unreadable, never "none near".
+  if (lastAt === undefined || vertexCount(geometry) === 0) {
     return undefined;
   }
   const hcount = strictNumber(p.hcount);
@@ -150,7 +151,13 @@ export function parseStation(feature) {
 /** A polygon of the fire danger map: GRIDCODE 0 (low) to 4 (extreme); undefined otherwise. */
 export function parseDangerArea(feature) {
   const code = strictNumber(feature.properties.GRIDCODE);
-  if (code === undefined || !Number.isInteger(code) || code < 0 || code > 4 || !feature.geometry) {
+  if (
+    code === undefined ||
+    !Number.isInteger(code) ||
+    code < 0 ||
+    code > 4 ||
+    vertexCount(feature.geometry) === 0
+  ) {
     return undefined;
   }
   return { code, geometry: feature.geometry };
@@ -320,7 +327,10 @@ export class CwfisClient {
       featureUrl(layer, { filter: cqlBox(layer.geometry, box), count: MAX_FEATURES.danger }),
       { maxBytes: MAX_BODY.danger },
     );
-    const { features } = featuresOf(body, 'danger');
+    const { features, matched } = featuresOf(body, 'danger');
+    if (matched !== undefined && matched > features.length) {
+      throw new SourceError('too_large', 'danger: more polygons than one answer holds');
+    }
     const items = features.map(parseDangerArea);
     // A polygon of an unknown class is an error, never a gap of the map.
     if (items.some((a) => !a)) {

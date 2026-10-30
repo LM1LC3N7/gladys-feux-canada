@@ -15,7 +15,7 @@ const round1 = (n) => Math.round(n * 10) / 10;
  * newest time, and the count within each distance of the trigger (a distance
  * larger than the radius counts what the radius holds).
  */
-export function hotspotsPart(house, items, radiusKm, { truncated = false } = {}) {
+export function hotspotsPart(house, items, radiusKm, { truncated = false, unreadable = 0 } = {}) {
   const near = [];
   for (const h of items) {
     const km = distanceKm(house, h);
@@ -44,6 +44,10 @@ export function hotspotsPart(house, items, radiusKm, { truncated = false } = {})
     status: 'ok',
     count: near.length,
     truncated,
+    unreadable,
+    // Records missing (cut answer, unreadable ones): the count is a minimum and
+    // the nearest may be farther than the true one (not published).
+    incomplete: truncated || unreadable > 0,
     nearestKm: nearest ? round1(nearest.km) : null,
     bearing: nearest ? bearingDeg(house, nearest) : null,
     nearestAt: nearest ? nearest.at : null,
@@ -106,18 +110,18 @@ export function mapAgeDays(date, now) {
 }
 
 /**
- * The danger class at the house: `area` is the polygon of the map holding it
- * (`{ code }`, GRIDCODE 0-4 published as level 1-5), undefined when none
- * holds it. `covered` says whether the house is on the map at all (inside one
- * of its polygons: Canada). `date` is the date of the map when readable: older than
+ * The danger class at the house: `found` is `{ code, km }`, the polygon of the
+ * map holding the house (km 0) or the nearest within DANGER_NEAR_KM (GRIDCODE
+ * 0-4 published as level 1-5), undefined when none is that near (the far
+ * North). `date` is the date of the map when readable: older than
  * DANGER_MAX_DAYS it is stale; unreadable, it is never called stale.
  */
-export function dangerPart(area, { date, now, covered = Boolean(area) }) {
+export function dangerPart(found, { date, now }) {
   if (date !== undefined && mapAgeDays(date, now) > DANGER_MAX_DAYS) {
-    return { status: 'stale', date, covered };
+    return { status: 'stale', date };
   }
-  if (!area) {
-    return { status: 'none', date, covered };
+  if (!found) {
+    return { status: 'none', date };
   }
-  return { status: 'ok', level: area.code + 1, date, covered };
+  return { status: 'ok', level: found.code + 1, km: found.km, date };
 }

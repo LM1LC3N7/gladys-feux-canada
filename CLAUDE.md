@@ -42,7 +42,11 @@ src/app.js            FeuxApp: lifecycle (getConfig retried), houses, Discovery,
 src/cwfis.js          the GeoServer client: URLs, one request at a time and
                       spaced, strict reading of the features
 src/http.js           the only network access (timeout, User-Agent, byte budget)
-src/geo.js            distance, bearing, boxes rounded outward, point in polygon
+src/geo.js            distance, bearing, boxes built from the 0.1-degree cell,
+                      point in polygon
+src/canada.js         in Canada, in the US, in doubt (bundled outline)
+src/outline.json      Natural Earth 1:10m outlines of Canada and the US,
+                      simplified by scripts/outline.mjs
 src/model.js          raw features -> parts of a reading (pure)
 src/devices.js        devices, feature keys, states (pure)
 src/triggers.js       readings -> scene events, the memory kept in /data (pure)

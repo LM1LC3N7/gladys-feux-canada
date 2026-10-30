@@ -65,7 +65,7 @@ export const MAX_BODY = {
   danger: 16 * 1024 * 1024,
 };
 /** Features asked at most (`count`); more matched is said in the status. */
-export const MAX_FEATURES = { hotspots: 20_000, perimeters: 500, stations: 2_000, danger: 50 };
+export const MAX_FEATURES = { hotspots: 20_000, perimeters: 500, stations: 2_000, danger: 1_000 };
 /** Vertices read at most in one answer of polygons (bounded analysis). */
 export const MAX_VERTICES = 300_000;
 
@@ -105,6 +105,10 @@ export const MEMORY_MAX_AGE = 48 * 3600_000;
 export const REARM_READS = 2;
 /** At most this many houses are watched. */
 export const MAX_HOUSES = 5;
+/** The danger class of the nearest polygon of the map within this distance (km) of the house. */
+export const DANGER_NEAR_KM = 25;
+/** Hotspots: up to this share of unreadable records, the readable ones are published as a minimum. */
+export const MAX_UNREADABLE_SHARE = 0.1;
 /** Nothing to read (no device, house gone): the houses are looked at again after this (ms). */
 export const IDLE_RETRY = 60_000;
 /** A write of /data is waited for at most this long (ms): a frozen /data holds nothing. */

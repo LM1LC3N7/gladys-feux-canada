@@ -3,7 +3,7 @@
 // test button (English and French). The status is bounded (LIMITS.status).
 // -----------------------------------------------------------------------------
 
-import { LIMITS, STATION_SEARCH_KM } from './constants.js';
+import { DANGER_NEAR_KM, LIMITS, STATION_SEARCH_KM } from './constants.js';
 
 export const FEATURE_NAMES = {
   hotspots: {
@@ -104,16 +104,22 @@ export const T = {
     };
     const { hotspots, perimeters, station, danger } = r;
     if (hotspots?.status === 'ok') {
-      const n = `${hotspots.count}${hotspots.truncated ? '+' : ''}`;
-      add(`${n} hotspot(s) within the radius`, `${n} point(s) chaud(s) dans le rayon`);
+      const n = hotspots.incomplete ? `at least ${hotspots.count}` : `${hotspots.count}`;
+      const f = hotspots.incomplete ? `au moins ${hotspots.count}` : `${hotspots.count}`;
+      add(`${n} hotspot(s) within the radius`, `${f} point(s) chaud(s) dans le rayon`);
     }
+    const where = (country) =>
+      country === 'doubt'
+        ? both(
+            'within 1 km of the US border, cannot tell',
+            'à moins de 1 km de la frontière, impossible à dire',
+          )
+        : both('outside Canada', 'hors du Canada');
     if (perimeters?.status === 'ok') {
       add(`${perimeters.count} active perimeter(s)`, `${perimeters.count} périmètre(s) actif(s)`);
     } else if (perimeters?.status === 'outside') {
-      add(
-        'perimeters not published off the Canadian map',
-        'périmètres non publiés hors de la carte canadienne',
-      );
+      const w = where(perimeters.country);
+      add(`no perimeter published (${w.en})`, `pas de périmètre publié (${w.fr})`);
     }
     if (station?.status === 'ok') {
       const fwi = Math.round(station.fwi);
@@ -128,14 +134,19 @@ export const T = {
       );
     }
     if (danger?.status === 'ok') {
+      const en = `danger ${dangerName(danger.level, 'en').toLowerCase()}`;
+      const fr = `danger ${dangerName(danger.level, 'fr').toLowerCase()}`;
       add(
-        `danger ${dangerName(danger.level, 'en').toLowerCase()}`,
-        `danger ${dangerName(danger.level, 'fr').toLowerCase()}`,
+        danger.km > 0 ? `${en} (nearest area of the map, ${danger.km} km)` : en,
+        danger.km > 0 ? `${fr} (zone de la carte la plus proche, ${danger.km} km)` : fr,
       );
+    } else if (danger?.status === 'outside') {
+      const w = where(danger.country);
+      add(`no danger class (${w.en})`, `pas de classe de danger (${w.fr})`);
     } else if (danger?.status === 'none') {
       add(
-        'off the danger map (outside Canada, or a gap of the map)',
-        'hors de la carte du danger (hors du Canada, ou un trou de la carte)',
+        `no danger class: no area of the map within ${DANGER_NEAR_KM} km (the far North may be uncovered)`,
+        `pas de classe de danger : aucune zone de la carte à moins de ${DANGER_NEAR_KM} km (le Grand Nord peut ne pas être couvert)`,
       );
     }
     return both(
@@ -167,6 +178,11 @@ export const T = {
     both(
       `Fire danger: the map is dated ${date}, stale: not published.`,
       `Danger d'incendie : la carte date du ${date}, périmée : non publié.`,
+    ),
+  hotspotsIncomplete: (unreadable, truncated) =>
+    both(
+      `Hotspots: ${truncated ? 'more than one answer holds' : `${unreadable} unreadable record(s)`}, the count is a minimum and the nearest is not published.`,
+      `Points chauds : ${truncated ? "plus qu'une réponse n'en contient" : `${unreadable} enregistrement(s) illisible(s)`}, le décompte est un minimum et le plus proche n'est pas publié.`,
     ),
   partFailed: (part, message) =>
     both(

@@ -14,10 +14,12 @@ import { createLogger } from '@gladysassistant/integration-sdk';
 import { normalizeConfig } from './config.js';
 import {
   CONFIG_RETRY,
+  DANGER_NEAR_KM,
   DANGER_REFRESH,
   IDLE_RETRY,
   HOTSPOTS_MAX_AGE,
   MAX_HOUSES,
+  MAX_UNREADABLE_SHARE,
   PAUSE,
   PERIMETERS_MAX_AGE,
   PERIMETER_ACTIVE,
@@ -29,7 +31,8 @@ import {
 import { CwfisClient } from './cwfis.js';
 import { SourceError } from './http.js';
 import { buildHouseDevice, houseStates, parseExternalId, validSelector } from './devices.js';
-import { cellBox, cellOf, containsPoint } from './geo.js';
+import { countryOf } from './canada.js';
+import { cellBox, cellOf, containsPoint, distanceToPolygonKm } from './geo.js';
 import { T, joinLines } from './i18n.js';
 import { dangerPart, hotspotsPart, perimetersPart, stationPart } from './model.js';
 import { createFileStore } from './store.js';
@@ -59,6 +62,24 @@ function checkComplete(answer, what) {
   if (answer.truncated) {
     throw new SourceError('too_large', `more ${what}s than one answer holds`);
   }
+}
+
+/**
+ * The polygon of the danger map holding the house, else the nearest within
+ * DANGER_NEAR_KM (the map leaves out shores and cities: Toronto is 2 km from
+ * it): `{ code, km }`, km 0 inside; undefined beyond (the far North).
+ */
+function nearestArea(areas, house) {
+  const inside = areas.find((a) => containsPoint(a.geometry, house));
+  if (inside) return { code: inside.code, km: 0 };
+  let best;
+  for (const a of areas) {
+    const km = distanceToPolygonKm(a.geometry, house);
+    if (km !== undefined && km <= DANGER_NEAR_KM && (!best || km < best.km)) {
+      best = { code: a.code, km: Math.round(km * 10) / 10 };
+    }
+  }
+  return best;
 }
 
 /** A pause read back from /data: `{ until, count, status }`; in memory it ends at a monotonic `due`. */
@@ -109,6 +130,8 @@ export class FeuxApp {
     this.housesError = false;
     /** selector -> { key, date, readAt (monotonic), part }: the danger is a daily map. */
     this.dangerCache = new Map();
+    /** selector -> { key, country }: where a house is (Canada, the US, in doubt). */
+    this.countries = new Map();
     /** device external id -> last reading (this session). */
     this.readings = new Map();
     /** The outcome of the last read, for the status and the test button. */
@@ -251,18 +274,23 @@ export class FeuxApp {
     this.generation += 1;
     return this.serialize(async () => {
       this.doStop();
-      await this.saveState();
-      if (this.busy) {
-        let timer;
-        await Promise.race([
-          this.busy.catch(() => {}),
-          new Promise((resolve) => {
-            timer = this.timers.setTimeout(resolve, STOP_WAIT);
-          }),
-        ]);
-        this.timers.clearTimeout(timer);
-        await this.saveState();
-      }
+      // Both waits at once (Docker stops the container 10 s after asking): the
+      // write of /data (SAVE_WAIT at most) and the read running (STOP_WAIT).
+      const running = this.busy;
+      let timer;
+      await Promise.all([
+        this.saveState(),
+        running &&
+          Promise.race([
+            running.catch(() => {}),
+            new Promise((resolve) => {
+              timer = this.timers.setTimeout(resolve, STOP_WAIT);
+            }),
+          ]),
+      ]);
+      this.timers.clearTimeout(timer);
+      // What the read saw since: written too (bounded as well).
+      if (running) await this.saveState();
     });
   }
 
@@ -554,17 +582,22 @@ export class FeuxApp {
       mono - cached.readAt >= DANGER_REFRESH ||
       (date !== undefined && cached.date !== date)
     ) {
-      // The box sent is the 0.1-degree cell of the house, never finer.
-      const areas = await this.client.dangerAreas(cellOf(house));
-      const area = areas.find((a) => containsPoint(a.geometry, house));
-      // On the map (Canada) only inside one of its polygons: the real map stops
-      // at the border, a US house next to it is outside. A gap of the map (a
-      // lake) is outside too: nothing is published rather than a false 0.
-      const covered = Boolean(area);
-      cached = { key, date, readAt: mono, area: area && { code: area.code }, covered };
+      // The box sent is built from the 0.1-degree cell of the house, never finer.
+      const areas = await this.client.dangerAreas(cellBox(cellOf(house), DANGER_NEAR_KM));
+      cached = { key, date, readAt: mono, found: nearestArea(areas, house) };
       this.dangerCache.set(house.selector, cached);
     }
-    return dangerPart(cached.area, { date, now, covered: cached.covered });
+    return dangerPart(cached.found, { date, now });
+  }
+
+  /** The country of a house (src/canada.js), kept while it does not move. */
+  countryOf(house) {
+    const key = `${house.latitude},${house.longitude}`;
+    const known = this.countries.get(house.selector);
+    if (known?.key === key) return known.country;
+    const country = countryOf(house);
+    this.countries.set(house.selector, { key, country });
+    return country;
   }
 
   /** One part of a house: its value, or `{ status: 'error' }`; a pause or an unreachable server stops the read. */
@@ -607,19 +640,29 @@ export class FeuxApp {
             ? { status: 'stale', newest: layers.hotspots.newest }
             : await this.part('hotspots', async () => {
                 const r = await this.client.hotspots(box);
-                checkComplete(r, 'hotspot');
-                return hotspotsPart(house, r.items, radius, { truncated: r.truncated });
+                // A few unreadable records never silence the feed (at the worst fire):
+                // the count is then a minimum, said as such; more than a tenth fails it.
+                if (r.unreadable > MAX_UNREADABLE_SHARE * (r.items.length + r.unreadable)) {
+                  checkComplete(r, 'hotspot');
+                }
+                return hotspotsPart(house, r.items, radius, {
+                  truncated: r.truncated,
+                  unreadable: r.unreadable,
+                });
               });
         if (gone()) return;
-        reading.danger = await this.part('danger', () =>
-          this.dangerOf(house, layers.dangerDate, now, mono),
-        );
+        // The perimeters and the danger map cover Canada only: across the border
+        // (or within 1 km of it, where the outline cannot tell) nothing is read.
+        const country = this.countryOf(house);
+        reading.danger =
+          country !== 'canada'
+            ? { status: 'outside', country }
+            : await this.part('danger', () => this.dangerOf(house, layers.dangerDate, now, mono));
         if (gone()) return;
-        // The perimeters cover Canada, as the danger map: off the map, none is not 0.
         reading.perimeters = layers.perimeters.error
           ? { status: 'error', message: layers.perimeters.error }
-          : reading.danger.covered === false
-            ? { status: 'outside' }
+          : country !== 'canada'
+            ? { status: 'outside', country }
             : !layers.perimeters.fresh
               ? { status: 'stale', newest: layers.perimeters.newest }
               : await this.part('perimeters', async () => {
@@ -755,6 +798,9 @@ export class FeuxApp {
       if (Object.values(reading).some((p) => p.status === 'ok')) connected = true;
       const { hotspots, perimeters, danger } = reading;
       if (hotspots.status === 'stale') notes.set('hs', T.hotspotsStale(hotspots.newest));
+      if (hotspots.incomplete) {
+        notes.set('hi', T.hotspotsIncomplete(hotspots.unreadable, hotspots.truncated));
+      }
       if (perimeters.status === 'stale') notes.set('pe', T.perimetersStale(perimeters.newest));
       if (danger.status === 'stale') notes.set('ds', T.dangerStale(danger.date));
       for (const [key, part] of Object.entries(reading)) {

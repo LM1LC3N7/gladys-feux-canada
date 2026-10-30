@@ -20,7 +20,7 @@ import {
   parseLegendDate,
 } from '../src/cwfis.js';
 import { houseStates, parseExternalId } from '../src/devices.js';
-import { distanceToPolygonKm } from '../src/geo.js';
+import { cellBox, cellOf, distanceToPolygonKm } from '../src/geo.js';
 import { SourceError, getJson } from '../src/http.js';
 import { hotspotsPart, perimetersPart, stationPart } from '../src/model.js';
 import { createFileStore, createMemoryStore } from '../src/store.js';
@@ -147,11 +147,11 @@ test('an unreadable /data at the start is said for the whole session', async () 
 
 // --- I1: the Canadian map, the border ---------------------------------------------
 
-test('inside a polygon of the map is on it; 0.5 km or 3 km outside is not', async () => {
-  for (const [offsetKm, covered] of [
-    [-1, true],
-    [0.5, false],
-    [3, false],
+test('the danger class: the area holding the house, else the nearest within 25 km, else none', async () => {
+  for (const [offsetKm, level] of [
+    [-1, 3],
+    [3, 3],
+    [30, undefined],
   ]) {
     const server = createServer();
     const house = HOUSES.fredericton;
@@ -169,8 +169,14 @@ test('inside a polygon of the map is on it; 0.5 km or 3 km outside is not', asyn
     server.answer = (route) => (route === 'danger' ? map : undefined);
     const t = await setup({ server });
     await t.start();
-    assert.equal(server.count('perimeters') === 1, covered, `${offsetKm} km`);
-    assert.equal(t.last(fred('active_perimeters')) !== undefined, covered, `${offsetKm} km`);
+    assert.equal(t.last(fred('danger')), level, `${offsetKm} km`);
+    // In Canada: the perimeters are read whatever the map.
+    assert.equal(t.last(fred('active_perimeters')), 1, `${offsetKm} km`);
+    const message = t.gladys.fake.connectionStatus.message.en;
+    if (offsetKm === 3)
+      assert.match(message, /danger high \(nearest area of the map, 3(\.\d)? km\)/);
+    if (offsetKm === 30)
+      assert.match(message, /no area of the map within 25 km \(the far North may be uncovered\)/);
   }
 });
 
@@ -209,15 +215,40 @@ test('some hotspot records unreadable among good ones: nothing published either'
   assert.match(t.gladys.fake.connectionStatus.message.en, /1 unreadable hotspot/);
 });
 
-test('more hotspots than one answer: not published as an exact count', async () => {
+test('more hotspots than one answer: the count is a minimum, said; the nearest not published', async () => {
   const server = createServer();
   const hotspots = fixture('hotspots-fredericton');
   hotspots.numberMatched = 50_000;
   server.answer = (route) => (route === 'hotspots' ? hotspots : undefined);
   const t = await setup({ server });
   await t.start();
-  assert.equal(t.last(fred('hotspots')), undefined);
-  assert.match(t.gladys.fake.connectionStatus.message.en, /more hotspots than one answer holds/);
+  assert.equal(t.last(fred('hotspots')), 9);
+  assert.equal(t.last(fred('nearest_hotspot_km')), undefined);
+  assert.match(t.gladys.fake.connectionStatus.message.en, /at least 9 hotspot\(s\)/);
+  assert.match(t.gladys.fake.connectionStatus.message.en, /the count is a minimum/);
+});
+
+test('a few unreadable hotspot records (under a tenth): the others published as a minimum', async () => {
+  const server = createServer();
+  const hotspots = fixture('hotspots-fredericton');
+  // 20 readable copies and 1 unreadable record: 1/21 < 10 %.
+  const good = hotspots.features[0];
+  const features = Array.from({ length: 20 }, (_, i) => ({
+    ...structuredClone(good),
+    id: `g${i}`,
+  }));
+  const bad = structuredClone(good);
+  bad.properties.lat = 'n/a';
+  server.answer = (route) =>
+    route === 'hotspots' ? { type: 'FeatureCollection', features: [...features, bad] } : undefined;
+  const t = await setup({ server });
+  await t.start();
+  assert.equal(t.last(fred('hotspots')), 20);
+  assert.equal(t.last(fred('nearest_hotspot_km')), undefined);
+  assert.match(
+    t.gladys.fake.connectionStatus.message.en,
+    /1 unreadable record\(s\), the count is a minimum/,
+  );
 });
 
 test('a perimeter without its date, or more perimeters than one answer: not published', async () => {
@@ -284,8 +315,21 @@ test('the requests: the CRS in every box, the active perimeters only, the newest
   assert.equal(query('hotspots-newest').get('sortBy'), 'rep_date D');
   assert.equal(query('perimeters-newest').get('sortBy'), 'lastdate D');
   assert.equal(query('hotspots').get('count'), '20000');
-  // The danger map is asked for the 0.1-degree cell of the house, never a finer box.
-  assert.equal(query('danger').get('CQL_FILTER'), "BBOX(the_geom,-66.7,45.9,-66.6,46,'EPSG:4326')");
+  // Every box is built from the 0.1-degree cell of the house, never from the house itself.
+  const cell = cellOf(HOUSES.fredericton);
+  const cql = (geometry, b) =>
+    `BBOX(${geometry},${b.west},${b.south},${b.east},${b.north},'EPSG:4326')`;
+  assert.equal(
+    query('hotspots').get('CQL_FILTER'),
+    "BBOX(geometry,-68.1,45,-65.2,46.9,'EPSG:4326')",
+  );
+  assert.equal(query('hotspots').get('CQL_FILTER'), cql('geometry', cellBox(cell, 100)));
+  assert.equal(
+    query('perimeters').get('CQL_FILTER').split(' AND ')[0],
+    cql('geometry', cellBox(cell, 100)),
+  );
+  assert.equal(query('stations').get('CQL_FILTER'), cql('the_geom', cellBox(cell, 200)));
+  assert.equal(query('danger').get('CQL_FILTER'), cql('the_geom', cellBox(cell, 25)));
 });
 
 // --- I4: lifecycle -------------------------------------------------------------------
@@ -728,4 +772,213 @@ test('/data: a file over 256 KB is not ours; a failed write leaves the old file 
   await mkdir(`${file}.tmp`);
   await assert.rejects(createFileStore(file).save({ b: 2 }));
   assert.equal(await readFile(file, 'utf8'), '{"a":1}');
+});
+
+// --- r2: the guards of the r1 fixes -----------------------------------------------
+
+test('a stop during the very first request: no other request goes', async () => {
+  const server = createServer();
+  let release;
+  server.answer = (route) =>
+    route === 'hotspots-newest'
+      ? new Promise((resolve) => (release = () => resolve(fixture('hotspots-newest'))))
+      : undefined;
+  const t = await setup({ server });
+  await t.app.start({ radius_km: 100 });
+  await t.wait(5 * SECOND);
+  const stopping = t.app.stop();
+  await t.wait(5 * SECOND);
+  await stopping;
+  release();
+  await t.wait(30 * SECOND);
+  assert.deepEqual(
+    server.requests.map((r) => r.route),
+    ['hotspots-newest'],
+  );
+});
+
+/** A first read without hotspot, then one with a hotspot 3 km away (events due), `slow` held. */
+async function eventsDue(slow) {
+  const server = createServer();
+  const base = fixture('hotspots-fredericton');
+  const near = structuredClone(base.features[0]);
+  near.properties.lat = HOUSES.fredericton.latitude + 0.03;
+  near.properties.lon = HOUSES.fredericton.longitude;
+  near.properties.rep_date = iso(NOW - 2 * HOUR);
+  let on = false;
+  server.answer = (route) =>
+    route === 'hotspots'
+      ? { type: 'FeatureCollection', features: on ? [near] : [], numberMatched: on ? 1 : 0 }
+      : undefined;
+  const t = await setup({ server });
+  await t.start();
+  on = true;
+  let release;
+  const original = t.gladys[slow].bind(t.gladys);
+  // Only the first call is held: the next ones would go at once.
+  let first = true;
+  t.gladys[slow] = async (...args) => {
+    if (first) {
+      first = false;
+      await new Promise((resolve) => (release = resolve));
+    }
+    return original(...args);
+  };
+  await t.wait(31 * MINUTE);
+  assert.ok(release, `${slow} is running`);
+  return { t, release: () => release() };
+}
+
+test('a stop while the states are published: the memory of the triggers is not written', async () => {
+  const { t, release } = await eventsDue('publishChangedStates');
+  const before = JSON.stringify([...t.app.memories.values()].map((m) => m.zones[5]));
+  const stopping = t.app.stop();
+  release();
+  await t.wait(5 * SECOND);
+  await stopping;
+  assert.equal(JSON.stringify([...t.app.memories.values()].map((m) => m.zones[5])), before);
+  assert.deepEqual(t.gladys.fake.sceneEvents, []);
+});
+
+test('a stop while the scene events are sent: none after the stop', async () => {
+  const { t, release } = await eventsDue('publishSceneEvent');
+  const stopping = t.app.stop();
+  release();
+  await t.wait(5 * SECOND);
+  await stopping;
+  await t.wait(5 * SECOND);
+  assert.ok(t.gladys.fake.sceneEvents.length <= 1, `${t.gladys.fake.sceneEvents.length} events`);
+});
+
+test('a Retry-After of 8 digits pauses 6 hours (the cap), not 1 minute', async () => {
+  const store = createMemoryStore();
+  const server = createServer();
+  server.answer = (route) =>
+    route === 'hotspots-newest'
+      ? new Response('', { status: 429, headers: { 'retry-after': '99999999' } })
+      : undefined;
+  const t = await setup({ store, server });
+  await t.start();
+  const hours = (store.data.pause.until - NOW) / HOUR;
+  assert.ok(hours > 5.9 && hours <= 6.01, `${hours} h`);
+});
+
+test('five houses with long names: the reason and the caveat stay in the bounded status', async () => {
+  const houses = Array.from({ length: 5 }, (_, i) => ({
+    ...mk(`maison-${i}`, 45 + i * 0.5, -66),
+    name: `Une maison au nom assez long numero ${i}`,
+  }));
+  const server = createServer();
+  server.answer = (route) =>
+    route === 'hotspots-newest'
+      ? {
+          type: 'FeatureCollection',
+          features: [{ type: 'Feature', properties: { rep_date: iso(NOW - 40 * HOUR) } }],
+        }
+      : undefined;
+  const t = await setup({ server, houses, devices: houses.map((h) => created(h)) });
+  await t.start();
+  const message = t.gladys.fake.connectionStatus.message.fr;
+  assert.ok(message.length <= 900);
+  assert.match(message, /périmée/);
+  assert.match(message, /pas des feux confirmés/);
+});
+
+test('the User-Agent follows the version of package.json (another version, another UA)', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'feux-canada-ua-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await mkdir(join(dir, 'src'));
+  await writeFile(join(dir, 'package.json'), JSON.stringify({ version: '9.8.7' }));
+  const source = await readFile(new URL('../src/constants.js', import.meta.url), 'utf8');
+  await writeFile(join(dir, 'src', 'constants.js'), source);
+  const copy = await import(new URL(`file://${join(dir, 'src', 'constants.js')}`).href);
+  assert.equal(
+    copy.USER_AGENT,
+    'gladys-feux-canada/9.8.7 (+https://github.com/LM1LC3N7/gladys-feux-canada)',
+  );
+});
+
+test('a perimeter or a danger polygon without a usable geometry is unreadable, never 0 nor "off the map"', async () => {
+  for (const geometry of [
+    { type: 'Point', coordinates: [-66.6, 45.9] },
+    { type: 'Polygon', coordinates: [] },
+    { type: 'GeometryCollection', geometries: [] },
+  ]) {
+    const perimeters = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          properties: { hcount: 4, lastdate: iso(NOW - 2 * HOUR), area: 3 },
+          geometry,
+        },
+      ],
+    };
+    const map = fixture('danger');
+    map.features[0].geometry = geometry;
+    const server = createServer();
+    server.answer = (route) =>
+      route === 'perimeters' ? perimeters : route === 'danger' ? map : undefined;
+    const t = await setup({ server });
+    await t.start();
+    assert.equal(t.last(fred('active_perimeters')), undefined, geometry.type);
+    assert.equal(t.last(fred('danger')), undefined, geometry.type);
+    const message = t.gladys.fake.connectionStatus.message.en;
+    assert.match(message, /Perimeters: read failed \(1 unreadable perimeter/);
+    assert.match(message, /Fire danger: read failed \(danger: unreadable polygon/);
+  }
+});
+
+test('more danger polygons than one answer: a failed read, not a class', async () => {
+  const server = createServer();
+  const map = fixture('danger');
+  map.numberMatched = 5000;
+  server.answer = (route) => (route === 'danger' ? map : undefined);
+  const t = await setup({ server });
+  await t.start();
+  assert.equal(t.last(fred('danger')), undefined);
+  assert.match(t.gladys.fake.connectionStatus.message.en, /more polygons than one answer holds/);
+});
+
+test('stop with a frozen /data and a read hanging: both waits at once, under Docker 10 s', async () => {
+  const store = createMemoryStore();
+  store.save = () => new Promise(() => {});
+  const server = createServer();
+  server.answer = (route) => (route === 'hotspots-newest' ? 'hang' : undefined);
+  const t = await setup({ store, server });
+  await t.app.start({ radius_km: 100 });
+  await t.wait(3 * SECOND);
+  const started = t.clock.elapsed;
+  let doneAt;
+  const stopping = t.app.stop().then(() => {
+    doneAt = t.clock.elapsed;
+  });
+  await t.wait(10 * SECOND);
+  await stopping;
+  // Saving and waiting for the read together (3 s), then the last write (2 s).
+  assert.ok(doneAt - started <= 5.5 * SECOND, `${Math.round(doneAt - started)} ms`);
+});
+
+test('the stations box of Toronto is built from its cell, not from the house', async () => {
+  const toronto = { ...mk('toronto', 43.6532, -79.3832) };
+  const t = await setup({ houses: [toronto], devices: [created(toronto)] });
+  await t.start();
+  const url = t.server.requests.find((r) => r.route === 'stations').url;
+  const b = cellBox(cellOf(toronto), 200);
+  assert.equal(
+    new URL(url).searchParams.get('CQL_FILTER'),
+    `BBOX(the_geom,${b.west},${b.south},${b.east},${b.north},'EPSG:4326')`,
+  );
+});
+
+test('an orphan device comes first in the bounded status, before the readings', async () => {
+  const t = await setup({
+    houses: [HOUSES.fredericton],
+    devices: [created(), created(mk('gone', 45, -66))],
+  });
+  await t.start();
+  assert.match(
+    t.gladys.fake.connectionStatus.message.en,
+    /^The house of "Feux près de gone" no longer exists/,
+  );
 });

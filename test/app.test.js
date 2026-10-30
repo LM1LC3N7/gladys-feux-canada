@@ -205,9 +205,10 @@ test('a house outside Canada: no perimeter, no danger published, hotspots are', 
   assert.equal(t.last(p('active_perimeters')), undefined);
   assert.equal(t.last(p('danger')), undefined);
   assert.equal(t.server.count('perimeters'), 0);
+  assert.equal(t.server.count('danger'), 0, 'the Canadian map is not even asked');
   assert.match(
     t.gladys.fake.connectionStatus.message.en,
-    /perimeters not published off the Canadian map/,
+    /no perimeter published \(outside Canada\), .*no danger class \(outside Canada\)/,
   );
 });
 
@@ -543,11 +544,12 @@ test('json helper is a Response', () => {
   assert.ok(json({}) instanceof Response);
 });
 
-test('a house in a gap of the danger map (a lake): off the map, nothing rather than a false 0', async () => {
+test('a house in a gap of the danger map (a shore): the class of the nearest area, its distance said', async () => {
   const server = createServer();
   const gap = fixture('danger');
   // The polygons of the box stay, none holds the house: the nearest is ~0.5 km north.
   for (const f of gap.features) {
+    f.properties.GRIDCODE = 3;
     f.geometry = {
       type: 'Polygon',
       coordinates: [
@@ -563,10 +565,12 @@ test('a house in a gap of the danger map (a lake): off the map, nothing rather t
   server.answer = (route) => (route === 'danger' ? gap : undefined);
   const t = await setup({ server });
   await t.start();
-  assert.equal(t.last(fred('danger')), undefined);
-  assert.equal(t.last(fred('active_perimeters')), undefined);
-  assert.equal(t.last(fred('hotspots')), 9);
-  assert.match(t.gladys.fake.connectionStatus.message.en, /off the danger map/);
+  assert.equal(t.last(fred('danger')), 4);
+  assert.equal(t.last(fred('active_perimeters')), 1);
+  assert.match(
+    t.gladys.fake.connectionStatus.message.en,
+    /danger very high \(nearest area of the map, 0\.\d km\)/,
+  );
 });
 
 test('a US house 200 m south of the border (Sumas, WA): off the map, no perimeter published', async () => {
