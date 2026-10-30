@@ -33,3 +33,9 @@ the notes of the version's GitHub Release.
   perimeters and the danger class of the nearest area of the map (within
   25 km), US houses by the border get neither; a few unreadable hotspot
   records, or a cut answer, publish the hotspots as a minimum.
+- With hotspot records missing and none readable within the radius, the count
+  is unknown: nothing is published (never "at least 0"), and such a read never
+  re-arms the "hotspot within a distance" trigger (no second alert for the same
+  fire). Two requests are a full second apart even when a timer fires early,
+  and a read timer firing a few ms early no longer delays the read by a
+  minute.

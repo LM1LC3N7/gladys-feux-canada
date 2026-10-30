@@ -124,19 +124,26 @@ export async function setup({
   server = createServer(),
   now = NOW,
   wallOffset = { ms: 0 },
+  clockStep,
+  earlyMs = 0,
 } = {}) {
   const gladys = createFakeGladys({ selector: SELECTOR, config, devices, houses });
   await gladys.connect();
-  const clock = testClock({ start: now });
+  // `clockStep`: how far each reading of the clock moves it (1 µs by default).
+  const clock = testClock({ start: now, ...(clockStep ? { step: clockStep } : {}) });
   // The timers of the app, with their due time: `wait` jumps from one to the next.
+  // `earlyMs`: a timer of a second or more fires this much early, as a timer of
+  // Node may (it counts from the start of the turn of the event loop).
   const live = new Map();
   const timers = {
     setTimeout(fn, ms, ...args) {
+      const asked = Math.max(0, Number(ms) || 0);
+      const delay = asked >= 1000 ? Math.max(0, asked - earlyMs) : asked;
       const h = clock.timers.setTimeout(() => {
         live.delete(h);
         fn(...args);
-      }, ms);
-      live.set(h, clock.elapsed + Math.max(0, Number(ms) || 0));
+      }, delay);
+      live.set(h, clock.elapsed + delay);
       return h;
     },
     clearTimeout(h) {

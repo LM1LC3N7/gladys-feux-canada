@@ -31,8 +31,16 @@
   Detroit, Sault Ste Marie, Fort Frances/International Falls, Hyder, Point
   Roberts). Danger: the polygon holding the house, else the nearest within 25
   km (polygons asked in the cell box widened by 25 km); none -> said (far
-  North). Superseded below: the r1 rule "inside a danger polygon" left out ~1
-  Canadian house in 5 and took Calais and Lubec.
+  North). Small islands and coasts drawn coarsely, more than 10 km off the
+  simplified outline, are "elsewhere" (r3 m1: about 0.5 % of the Canadian
+  stations, Brier, Cape Sable, St. Paul, Sagona, Île aux Perroquets, Île
+  Rouge, Sartine, Herbert, Digby (Prince Rupert airport), Lucy): no
+  perimeters nor danger there, said in the docs.
+  `COAST_KM` stays at 10 km: documented rather than widened, a wider band
+  would reach islands of other countries unchecked. The doubt says "within
+  1 km of the Canada-US border, or 2 km on a strait" (the outline holds only
+  these two countries). Superseded below: the r1 rule "inside a danger
+  polygon" left out ~1 Canadian house in 5 and took Calais and Lubec.
 - r1 (superseded): "On the Canadian map": the house is inside a
   danger polygon, nothing else (r1 I1: the old "a polygon in the box" took US
   houses up to ~16 km south of the border, with a false 0 perimeter). Checked
@@ -47,6 +55,15 @@
   farther). The r1 rule ("never a partial count") silenced the feed at the
   worst fire (r1 I2, m5, m6). The real layers had no unreadable
   record on 2026-10-29 (2012 stations, 2251 hotspots, 736 perimeters).
+  r3 I1: the minimum is published only above 0 (`hotspotCount`): "at least 0"
+  is no count (an unreadable record may be 1 km away), so nothing is published
+  and the status says "hotspots unknown". Such a read never counts toward the
+  re-arming of an active zone of the trigger (it is left out, as a failed read:
+  no second alert for the same fire); a zone not active still reads it as
+  quiet, so a hotspot read later fires (a late first alert, never a second).
+  Publishing nothing at all when records are missing (r2) would leave a stale
+  count on the dashboard at the worst fire: the minimum above 0 is kept (r3 m4,
+  the reviewer's first option), said "at least N" in the status.
 - No device, or a device without its house: no request to the CWFIS, the
   houses looked at again every minute (r1 B1); any way out of a read leaves
   the next try at least a minute away.
@@ -70,6 +87,16 @@
 - The station is identified by its AES number (the feature id changes at each
   request); its name comes with '+' for spaces, written back as spaces.
 - The server sends neither ETag nor Last-Modified: no conditional request.
+- Spacing: the clock is read again after the timer and the rest waited for
+  (5 times at most): a timer of Node counts from the start of the turn of the
+  event loop and may fire a few ms early (r2 m5, r3 m3: 986-999 ms seen).
+- The read timer firing early (r4, found by the real-clock test of `gi ci`
+  under load: gaps 120 s and 60 s for 60 s): read() declined (not due) and the
+  loop, reading the clock again just past the due time, took it for a read
+  gone wrong and waited IDLE_RETRY more. read() now answers NOT_DUE and the
+  loop only waits for the rest. The real-clock test stops the app in a
+  `finally`: a failure left its real timers running, so the test process (and
+  a CI job, up to its 6 h limit) never ended.
 - The test button reads only when a read is due; without device, one small
   request, counted as the read.
 

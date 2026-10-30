@@ -50,6 +50,8 @@ const located = (h) =>
 const PAUSING = new Set(['rate_limited', 'server']);
 /** Errors after which the read stops for now: the server cannot be reached. */
 const UNREACHABLE = new Set(['timeout', 'network']);
+/** What read() answers when it is not due yet (a timer that fired early). */
+const NOT_DUE = Symbol('not due');
 
 /**
  * A layer answer with records dropped as unreadable, or cut at the page size,
@@ -439,15 +441,22 @@ export class FeuxApp {
   }
 
   async loop(session) {
+    let result;
     try {
-      await this.tick();
+      result = await this.tick();
     } catch (err) {
       this.logger.error(`Unexpected error (${err?.name ?? 'Error'}: ${err?.message})`);
     }
     if (session === this.session && this.running) {
-      // Whatever the way out of the read, the next try is never at once.
-      const mono = this.monotonic();
-      if (this.dueAt(mono) <= mono) this.nextTryAt = mono + IDLE_RETRY;
+      // Whatever the way out of the read, the next try is never at once. A
+      // timer that fired a little early (the read was not due yet, decided on
+      // its own reading of the clock) is only set again for the rest: this
+      // second reading may already be past the due time, never a reason to
+      // wait IDLE_RETRY more.
+      if (result !== NOT_DUE) {
+        const mono = this.monotonic();
+        if (this.dueAt(mono) <= mono) this.nextTryAt = mono + IDLE_RETRY;
+      }
       this.schedule();
     }
   }
@@ -469,7 +478,7 @@ export class FeuxApp {
     if (!session || !this.running) return;
     const gone = () => session !== this.session || !this.running;
     const mono = this.monotonic();
-    if (mono < this.dueAt(mono, { probe })) return;
+    if (mono < this.dueAt(mono, { probe })) return NOT_DUE;
     await this.loadHouses();
     if (gone()) return;
     if (this.housesError) {
@@ -641,7 +650,10 @@ export class FeuxApp {
             : await this.part('hotspots', async () => {
                 const r = await this.client.hotspots(box);
                 // A few unreadable records never silence the feed (at the worst fire):
-                // the count is then a minimum, said as such; more than a tenth fails it.
+                // the count is then a minimum, said as such, and published only with a
+                // readable hotspot within the radius (never "at least 0", see
+                // hotspotCount); the triggers never take it for an empty read. More
+                // than a tenth fails it.
                 if (r.unreadable > MAX_UNREADABLE_SHARE * (r.items.length + r.unreadable)) {
                   checkComplete(r, 'hotspot');
                 }
@@ -652,7 +664,8 @@ export class FeuxApp {
               });
         if (gone()) return;
         // The perimeters and the danger map cover Canada only: across the border
-        // (or within 1 km of it, where the outline cannot tell) nothing is read.
+        // (or within 1 km of it, 2 km on a strait, where the outline cannot tell),
+        // or off its outline by more than 10 km (a small island), nothing is read.
         const country = this.countryOf(house);
         reading.danger =
           country !== 'canada'

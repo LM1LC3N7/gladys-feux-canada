@@ -13,6 +13,7 @@ import {
 } from '@gladysassistant/integration-sdk';
 import { LIMITS, MAX_FEATURES, RADIUS } from './constants.js';
 import { FEATURE_NAMES } from './i18n.js';
+import { hotspotCount } from './model.js';
 
 /** Feature keys (forever). */
 export const FEATURE = {
@@ -119,8 +120,11 @@ export function houseStates(deviceId, reading, radiusKm) {
     );
   const { hotspots, perimeters, station, danger } = reading;
   if (hotspots?.status === 'ok') {
-    put(FEATURE.HOTSPOTS, hotspots.count);
-    // Records missing: the count is a minimum (said in the status), the nearest unknown.
+    // Records missing: the count is published only as a true minimum (one
+    // readable hotspot within the radius at least, said in the status), never
+    // "at least 0"; the nearest is unknown.
+    const count = hotspotCount(hotspots);
+    if (count !== undefined) put(FEATURE.HOTSPOTS, count);
     if (!hotspots.incomplete) put(FEATURE.NEAREST_HOTSPOT, hotspots.nearestKm ?? radiusKm);
   }
   if (perimeters?.status === 'ok') {

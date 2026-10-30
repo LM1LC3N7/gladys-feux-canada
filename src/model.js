@@ -46,7 +46,8 @@ export function hotspotsPart(house, items, radiusKm, { truncated = false, unread
     truncated,
     unreadable,
     // Records missing (cut answer, unreadable ones): the count is a minimum and
-    // the nearest may be farther than the true one (not published).
+    // the nearest may be farther than the true one (not published). See
+    // hotspotCount: "at least 0" is no count.
     incomplete: truncated || unreadable > 0,
     nearestKm: nearest ? round1(nearest.km) : null,
     bearing: nearest ? bearingDeg(house, nearest) : null,
@@ -54,6 +55,18 @@ export function hotspotsPart(house, items, radiusKm, { truncated = false, unread
     newestAt: near.length > 0 ? Math.max(...near.map((h) => h.at)) : null,
     zones,
   };
+}
+
+/**
+ * The hotspot count that may be published, or undefined. Records missing (a
+ * cut answer, unreadable ones): the readable hotspots within the radius are a
+ * true minimum when there is at least one; with none, the count is unknown
+ * (an unreadable record may be 1 km away), never a 0.
+ */
+export function hotspotCount(part) {
+  if (part?.status !== 'ok') return undefined;
+  if (part.incomplete && part.count === 0) return undefined;
+  return part.count;
 }
 
 /** The active perimeters within the radius: count, nearest distance (0 inside one). */

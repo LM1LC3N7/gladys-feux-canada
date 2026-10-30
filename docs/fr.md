@@ -79,10 +79,18 @@ par le bouton **Tester**, la Découverte ou la création d'un appareil.
   embarqué (Natural Earth 1:10m, domaine public, simplifié : 217 Ko) : exact le
   long du 49e parallèle, et une maison à moins de 1 km de la frontière ailleurs
   (rivières Sainte-Croix, Détroit, Saint-Clair, Niagara, Saint-Laurent,
-  Sainte-Marie, à la Pluie ; Stanstead) est « impossible à dire ». Hors du
-  Canada ou dans le doute : ni périmètres ni danger (rien plutôt qu'un faux 0),
-  et le statut dit pourquoi. Une rive canadienne (à moins de 10 km du contour)
-  compte comme le Canada.
+  Sainte-Marie, à la Pluie ; Stanstead), ou entre deux rives des deux pays à
+  moins de 2 km sur un détroit (Lubec et Campobello), est
+  « impossible à dire ». Hors du Canada ou dans le doute : ni périmètres ni
+  danger (rien plutôt qu'un faux 0), et le statut dit pourquoi. Une rive
+  canadienne (à moins de 10 km du contour) compte comme le Canada. Une **petite
+  île** ou une côte que le contour simplifié dessine grossièrement, à plus de
+  10 km de lui, compte comme « hors du Canada » : ni périmètres ni danger, les
+  points chauds restent lus (environ 0,5 % des stations météo-feu du Canada :
+  îles Brier, du Cap-de-Sable et Saint-Paul en Nouvelle-Écosse, île Sagona à
+  Terre-Neuve, île aux Perroquets et île Rouge au Québec, îles Sartine, Herbert
+  et Digby (l'aéroport de Prince Rupert, pas la ville) et îles Lucy en
+  Colombie-Britannique).
 - Classe de danger : celle de la zone de la carte qui contient la maison, sinon
   celle de la zone la plus proche à moins de 25 km (la carte laisse de côté les
   rives et les grandes villes : Toronto est à 1,5 km de la zone la plus proche,
@@ -93,9 +101,12 @@ par le bouton **Tester**, la Découverte ou la création d'un appareil.
   contour, classe de danger inconnue) ou une réponse coupée à sa taille de page :
   pour les périmètres et la carte du danger, la partie n'est pas publiée et le
   statut dit pourquoi. Pour les points chauds, jusqu'à un dixième
-  d'enregistrements illisibles, ou plus de 20 000 points chauds dans la boîte,
-  les points lisibles sont publiés comme un **minimum** (« au moins N » dans le
-  statut) et le plus proche n'est pas publié ; au-delà d'un dixième, rien.
+  d'enregistrements illisibles, ou plus de 20 000 points chauds dans la boîte :
+  les points lisibles dans le rayon sont publiés comme un **minimum** (« au
+  moins N » dans le statut) s'il y en a au moins un ; s'il n'y en a aucun, le
+  décompte est inconnu (un point illisible peut être à 1 km) et **rien** n'est
+  publié, jamais 0 ; le plus proche n'est publié dans aucun des deux cas.
+  Au-delà d'un dixième, rien.
 - Aucune station avec un relevé de moins de 36 h et un IFM à 200 km : IFM et
   station non publiés (hors saison, de novembre à mars, c'est le cas normal).
 - Carte du danger datée de plus de 2 jours : danger non publié. Si sa date est
@@ -117,8 +128,11 @@ par le bouton **Tester**, la Découverte ou la création d'un appareil.
 - **Point chaud à moins d'une distance** (5 à 300 km) : un point chaud apparaît
   plus près que la distance choisie alors qu'il n'y en avait aucun à la lecture
   précédente. Une seule fois par épisode : il se réarme après deux lectures de
-  suite sans aucun point chaud à cette distance. Au-delà du rayon de la
-  configuration, c'est le rayon qui compte. Variables : distance (km), direction
+  suite sans aucun point chaud à cette distance (une lecture à enregistrements
+  manquants sans point lisible à cette distance ne compte pas, comme une
+  lecture échouée : un point chaud illisible ne fait jamais alerter deux fois
+  pour le même feu). Au-delà du rayon de la configuration, c'est le rayon qui
+  compte. Variables : distance (km), direction
   (N, NE...), cap, nombre, heure de la détection, satellite.
 - **Danger d'incendie en hausse** : la classe atteint le niveau choisi (modéré,
   élevé, très élevé, extrême) en venant d'en dessous ; un saut de bas à élevé

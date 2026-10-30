@@ -77,9 +77,17 @@ the creation of a device.
   Earth 1:10m, public domain, simplified: 217 KB): exact along the 49th
   parallel, and elsewhere a house within 1 km of the border (the St. Croix,
   Detroit, St. Clair, Niagara, St. Lawrence, St. Marys and Rainy rivers;
-  Stanstead) is "cannot tell". Outside Canada or in doubt: neither perimeters
-  nor danger (nothing rather than a false 0), and the status says why. A
-  Canadian shore (within 10 km of the outline) counts as Canada.
+  Stanstead), or with both countries within 2 km across a strait (Lubec and
+  Campobello), is "cannot tell". Outside Canada or in doubt:
+  neither perimeters nor danger (nothing rather than a false 0), and the
+  status says why. A Canadian shore (within 10 km of the outline) counts as
+  Canada. A **small island** or a coast drawn coarsely by the simplified
+  outline, more than 10 km off it, counts as "outside Canada": no perimeters
+  nor danger there, the hotspots are still read (about 0.5 % of the fire
+  weather stations of Canada: Brier Island, Cape Sable Island and St. Paul
+  Island in Nova Scotia, Sagona Island in Newfoundland, Île aux Perroquets and
+  Île Rouge in Quebec, Sartine, Herbert and Digby islands (the Prince Rupert
+  airport, not the town) and the Lucy Islands in British Columbia).
 - Danger class: that of the area of the map holding the house, else that of
   the nearest area within 25 km (the map leaves out shores and large cities:
   Toronto is 1.5 km from the nearest area, Montréal 0.4 km), its distance said
@@ -89,9 +97,11 @@ the creation of a device.
   without outline, an unknown danger class) or an answer cut at its page size:
   for the perimeters and the danger map, the part is not published and the
   status says why. For the hotspots, up to a tenth of unreadable records, or
-  over 20,000 hotspots in the box, the readable ones are published as a
-  **minimum** ("at least N" in the status) and the nearest is not published;
-  beyond a tenth, nothing.
+  over 20,000 hotspots in the box: the readable ones within the radius are
+  published as a **minimum** ("at least N" in the status) when there is one
+  at least; with none readable within the radius, the count is unknown (an
+  unreadable one may be 1 km away) and **nothing** is published, never 0; the
+  nearest is not published either way. Beyond a tenth, nothing.
 - No station with a report under 36 h old and an FWI within 200 km: FWI and
   station not published (off season, November to March, this is the normal
   case).
@@ -111,7 +121,10 @@ the creation of a device.
 - **Hotspot within a distance** (5 to 300 km): a hotspot appears closer than
   the chosen distance where there was none at the previous read. Once per
   episode: it re-arms after two reads in a row without any hotspot at that
-  distance. Beyond the radius of the configuration, the radius applies.
+  distance (a read with records missing and none readable at that distance
+  does not count, as a failed read: an unreadable hotspot never makes the same
+  fire alert twice). Beyond the radius of the configuration, the radius
+  applies.
   Variables: distance (km), direction (N, NE...), bearing, count, time of the
   detection, satellite.
 - **Fire danger raised**: the class reaches the chosen level (moderate, high,

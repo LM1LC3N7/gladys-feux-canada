@@ -60,8 +60,14 @@ test('real clock x20: reads at the interval, never sooner; one request at a time
   });
   const spy = spyOn(app, 'readHouses', clock);
   await app.start({ radius_km: 100 });
-  const gaps = await measurePeriod(spy, { count: 3, period: INTERVAL });
-  await app.stop();
+  let gaps;
+  try {
+    gaps = await measurePeriod(spy, { count: 3, period: INTERVAL });
+  } finally {
+    // Stopped whatever the outcome: a failure never leaves the app running
+    // its real timers, which would keep the test process (and a CI job) alive.
+    await app.stop();
+  }
   assert.equal(gaps.length, 2);
   assert.equal(peak, 1, 'never two requests at once');
   assert.ok(clock.timersSet < 60, `${clock.timersSet} timers`);

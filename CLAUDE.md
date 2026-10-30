@@ -85,7 +85,9 @@ scripts/cover.mjs     cover.png (800x534), plain Node
 - **The container rootfs is read-only.** Write only under `/data`, the one
   writable volume. Never log tokens, passwords or API keys.
 - **Never publish an unknown as 0**: a stale, silent, failed or uncovered part
-  is not published and is said in the status.
+  is not published and is said in the status. A hotspot answer with records
+  missing (unreadable, cut) gives a minimum, published only above 0
+  (`hotspotCount`), and never counts as an empty read for the triggers.
 - **Never read sooner than the interval** (restart, Discovery, test button).
 - **Versions belong to the Release workflow** (Actions → Release). Never edit
   `version` in `package.json` or in the manifest, nor the `docker_image` tag,

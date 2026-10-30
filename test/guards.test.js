@@ -982,3 +982,164 @@ test('an orphan device comes first in the bounded status, before the readings', 
     /^The house of "Feux près de gone" no longer exists/,
   );
 });
+
+// --- r3 I1: an incomplete hotspot answer is never "0" nor an empty read -----------------
+
+/** A hotspot of the capture moved `dLat` degrees north of Fredericton (0.2 = 22 km). */
+const hotspotAt = (id, dLat) => {
+  const h = structuredClone(fixture('hotspots-fredericton').features[0]);
+  h.id = id;
+  h.properties.lat = HOUSES.fredericton.latitude + dLat;
+  h.properties.lon = HOUSES.fredericton.longitude;
+  h.properties.rep_date = iso(NOW - 2 * HOUR);
+  return h;
+};
+const unreadable = () => ({
+  type: 'Feature',
+  id: 'bad',
+  properties: { lat: null, lon: null, rep_date: 'x' },
+  geometry: null,
+});
+/** 19 readable hotspots 180 km away (outside the 100 km radius) and 1 unreadable: 5 %. */
+const noneReadableNear = () => [
+  ...Array.from({ length: 19 }, (_, i) => hotspotAt(`far${i}`, 1.6 + i * 0.01)),
+  unreadable(),
+];
+
+test('records missing and no readable hotspot within the radius: no count published, said unknown', async () => {
+  for (const [name, answer] of [
+    ['1 unreadable of 20', () => ({ type: 'FeatureCollection', features: noneReadableNear() })],
+    [
+      'an answer cut at its page size',
+      () => ({
+        type: 'FeatureCollection',
+        features: [hotspotAt('far', 1.6)],
+        numberMatched: 50_000,
+      }),
+    ],
+  ]) {
+    const server = createServer();
+    server.answer = (route) => (route === 'hotspots' ? answer() : undefined);
+    const t = await setup({ server });
+    await t.start();
+    assert.equal(t.last(fred('hotspots')), undefined, `${name}: never "at least 0"`);
+    assert.equal(t.last(fred('nearest_hotspot_km')), undefined, name);
+    const message = t.gladys.fake.connectionStatus.message.en;
+    assert.match(message, /hotspots unknown \(records missing, none readable within the radius\)/);
+    assert.match(message, /the count is a minimum \(not published without a readable one/);
+    assert.doesNotMatch(message, /at least 0/);
+    // The other parts are read and published as usual.
+    assert.equal(t.last(fred('active_perimeters')), 1, name);
+  }
+});
+
+test('records missing between two reads of the same hotspot: no second alert, no 0 published', async () => {
+  const server = createServer();
+  let mode = 'quiet';
+  server.answer = (route) =>
+    route === 'hotspots'
+      ? {
+          type: 'FeatureCollection',
+          features:
+            mode === 'quiet' ? [] : mode === 'fire' ? [hotspotAt('fire', 0.2)] : noneReadableNear(),
+        }
+      : undefined;
+  const t = await setup({ server });
+  await t.start();
+  const within30 = () =>
+    t.gladys.fake.sceneEvents.filter((e) => e.key === 'hotspot_nearby' && e.data.distance === '30')
+      .length;
+  mode = 'fire';
+  await t.wait(31 * MINUTE);
+  assert.equal(within30(), 1);
+  assert.equal(t.last(fred('hotspots')), 1);
+  mode = 'unreadable';
+  for (let i = 0; i < 3; i += 1) await t.wait(31 * MINUTE);
+  assert.equal(t.last(fred('hotspots')), 1, 'the last count stands: no 0 published');
+  assert.equal(
+    t.gladys.fake.states.filter((s) => s.device_feature_external_id === fred('hotspots')).at(-1)
+      .state,
+    1,
+  );
+  mode = 'fire';
+  await t.wait(31 * MINUTE);
+  assert.equal(within30(), 1, 'the hotspot never left: no duplicate alert');
+});
+
+// --- r3 I2: the danger page size, the country of a house that moves ---------------------
+
+test('up to 100 danger polygons in the box (the real map in 2026): the class is read', async () => {
+  const server = createServer();
+  const map = fixture('danger');
+  const house = HOUSES.fredericton;
+  // The polygons of the capture, then small ones over 100 km north (never the nearest).
+  const features = [
+    ...map.features,
+    ...Array.from({ length: 100 - map.features.length }, (_, i) => ({
+      type: 'Feature',
+      id: `far${i}`,
+      properties: { GRIDCODE: 0 },
+      geometry: square(house.longitude + (i % 10) * 0.05, house.latitude + 1 + i * 0.01, 0.01),
+    })),
+  ];
+  // A server that keeps to the page size asked (`count`), as GeoServer does.
+  server.answer = (route, url) =>
+    route === 'danger'
+      ? {
+          type: 'FeatureCollection',
+          features: features.slice(0, Number(new URL(url).searchParams.get('count'))),
+          numberMatched: features.length,
+        }
+      : undefined;
+  const t = await setup({ server });
+  await t.start();
+  assert.equal(t.last(fred('danger')), 3);
+  assert.doesNotMatch(t.gladys.fake.connectionStatus.message.en, /Fire danger: read failed/);
+  const count = Number(
+    new URL(server.requests.find((r) => r.route === 'danger').url).searchParams.get('count'),
+  );
+  assert.ok(count >= 100, `page size ${count}`);
+});
+
+test('a house that moves across the border: its country is decided again (Fredericton, Seattle, back)', async () => {
+  const t = await setup();
+  await t.start();
+  assert.equal(t.server.count('perimeters'), 1);
+  assert.equal(t.server.count('danger'), 1);
+  t.gladys.fake.houses[0] = { ...HOUSES.fredericton, latitude: 47.6062, longitude: -122.3321 };
+  await t.wait(31 * MINUTE);
+  assert.equal(t.server.count('perimeters'), 1, 'Seattle: no perimeter asked');
+  assert.equal(t.server.count('danger'), 1, 'Seattle: no danger map asked');
+  assert.match(
+    t.gladys.fake.connectionStatus.message.en,
+    /no perimeter published \(outside Canada\), .*no danger class \(outside Canada\)/,
+  );
+  t.gladys.fake.houses[0] = { ...HOUSES.fredericton };
+  await t.wait(31 * MINUTE);
+  assert.equal(t.server.count('perimeters'), 2, 'back in Fredericton: read again');
+  // The danger polygons of Fredericton are still those read 1 h ago (DANGER_REFRESH).
+  assert.match(t.gladys.fake.connectionStatus.message.en, /1 active perimeter\(s\), .*danger high/);
+});
+
+// --- A timer that fires a little early (found by the real-clock test under load) ---------
+
+test('a read timer that fires a little early never delays the read by a minute', async () => {
+  const server = createServer();
+  const starts = [];
+  let t;
+  server.answer = (route) => {
+    if (route === 'hotspots-newest') starts.push(t.clock.elapsed);
+    return undefined;
+  };
+  // Each reading of the clock moves it 0.5 ms; a timer of 1 s or more fires 0.75 ms early:
+  // the read sees it is not due yet (0.25 ms before), the loop reads the clock again just
+  // past the due time (0.25 ms after).
+  t = await setup({ server, clockStep: 0.5, earlyMs: 0.75 });
+  await t.start();
+  await t.wait(3 * HOUR);
+  const gaps = starts.slice(1).map((at, i) => at - starts[i]);
+  assert.ok(gaps.length >= 5, `${gaps.length} reads`);
+  for (const gap of gaps) {
+    assert.ok(gap >= 30 * MINUTE && gap < 30 * MINUTE + 10 * SECOND, `${Math.round(gap)} ms`);
+  }
+});

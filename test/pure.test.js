@@ -30,9 +30,18 @@ import {
 } from '../src/geo.js';
 import { getText, retryAfterMs } from '../src/http.js';
 import { CwfisClient } from '../src/cwfis.js';
-import { dangerPart, hotspotsPart, mapAgeDays, perimetersPart, stationPart } from '../src/model.js';
+import { T } from '../src/i18n.js';
+import {
+  dangerPart,
+  hotspotCount,
+  hotspotsPart,
+  mapAgeDays,
+  perimetersPart,
+  stationPart,
+} from '../src/model.js';
 import { houseEvents, validMemory } from '../src/triggers.js';
 import { HOUSES, NOW, fixture } from './helpers/app.js';
+import { testClock } from './kit/clock.mjs';
 import { createFakeGladys } from '@gladysassistant/integration-sdk/testing';
 
 const home = HOUSES.fredericton;
@@ -466,4 +475,126 @@ test('the client sends one request at a time, even asked twice at once', async (
   await Promise.all([client.newest('hotspots'), client.newest('hotspots'), client.dangerDate()]);
   assert.equal(peak, 1);
   assert.equal(client.sent, 3);
+});
+
+// --- r3 I1: an incomplete answer is a minimum, never "at least 0" nor an empty read ---
+
+test('records missing: the count is a minimum when some hotspot is readable, unknown without (never 0)', () => {
+  const id = 'ext:feux-canada:house:fredericton';
+  const near = { latitude: home.latitude + 0.2, longitude: home.longitude, at: NOW };
+  const far = { latitude: home.latitude + 1.7, longitude: home.longitude, at: NOW };
+  const states = (part) =>
+    Object.fromEntries(
+      houseStates(id, { hotspots: part }, 100).map((s) => [
+        s.device_feature_external_id.split(':').pop(),
+        s.state,
+      ]),
+    );
+  for (const missing of [{ unreadable: 1 }, { truncated: true }]) {
+    const none = hotspotsPart(home, [far], 100, missing);
+    assert.equal(none.incomplete, true);
+    assert.equal(hotspotCount(none), undefined, 'at least 0 is no count');
+    assert.deepEqual(states(none), {}, 'neither 0 nor the radius');
+    const some = hotspotsPart(home, [near, far], 100, missing);
+    assert.equal(hotspotCount(some), 1, 'one readable within the radius: a true minimum');
+    assert.deepEqual(states(some), { hotspots: 1 }, 'the nearest stays unknown');
+  }
+  // A complete answer with none within the radius is a true 0, the nearest the radius.
+  const complete = hotspotsPart(home, [far], 100);
+  assert.equal(hotspotCount(complete), 0);
+  assert.deepEqual(states(complete), { hotspots: 0, nearest_hotspot_km: 100 });
+  assert.equal(hotspotCount({ status: 'stale', count: 3 }), undefined);
+  assert.equal(hotspotCount(undefined), undefined);
+});
+
+test('records missing: the status says "unknown" or "at least N", never "at least 0"', () => {
+  const far = { latitude: home.latitude + 1.7, longitude: home.longitude, at: NOW };
+  const near = { latitude: home.latitude + 0.2, longitude: home.longitude, at: NOW };
+  const line = (items, missing) =>
+    T.house('Home', { hotspots: hotspotsPart(home, items, 100, missing) });
+  const unknown = line([far], { unreadable: 1 });
+  assert.match(unknown.en, /hotspots unknown \(records missing, none readable within the radius\)/);
+  assert.match(unknown.fr, /points chauds inconnus/);
+  assert.doesNotMatch(unknown.en, /at least 0|\b0 hotspot/);
+  assert.match(line([near, far], { truncated: true }).en, /at least 1 hotspot\(s\)/);
+  assert.match(line([near], {}).en, /Home: 1 hotspot\(s\) within the radius/);
+});
+
+test('triggers: a read with records missing and none readable is never an empty read', () => {
+  const ctx = { deviceId: 'd', language: 'en', now: NOW };
+  const fire = { latitude: home.latitude + 0.2, longitude: home.longitude, at: NOW };
+  const far = { latitude: home.latitude + 1.7, longitude: home.longitude, at: NOW };
+  const read = (items, missing) => ({
+    hotspots: hotspotsPart(home, items, 100, missing),
+    danger: { status: 'error' },
+  });
+  const within30 = (r) => r.events.filter((e) => e.data.distance === '30').length;
+  let r = houseEvents(undefined, read([]), ctx);
+  r = houseEvents(r.memory, read([fire]), ctx);
+  assert.equal(within30(r), 1, 'the hotspot 22 km away');
+  const active = structuredClone(r.memory.zones);
+  // Three reads with an unreadable record and nothing readable within 100 km.
+  for (const missing of [{ unreadable: 1 }, { truncated: true }, { unreadable: 2 }]) {
+    r = houseEvents(r.memory, read([far], missing), ctx);
+    assert.equal(r.events.length, 0);
+    assert.deepEqual(r.memory.zones, active, 'the zones stay as they were');
+  }
+  r = houseEvents(r.memory, read([fire]), ctx);
+  assert.equal(within30(r), 0, 'the same hotspot read again: no second alert');
+  // A complete empty read, one with records missing, another complete one: re-armed by the
+  // two complete ones only (the one in between is left out, as a failed read).
+  r = houseEvents(r.memory, read([]), ctx);
+  r = houseEvents(r.memory, read([far], { unreadable: 1 }), ctx);
+  assert.equal(r.memory.zones[30].active, true);
+  assert.equal(r.memory.zones[30].empty, 1);
+  r = houseEvents(r.memory, read([]), ctx);
+  assert.equal(r.memory.zones[30].active, false);
+  // A hotspot readable within the distance counts even when records are missing.
+  r = houseEvents(r.memory, read([fire, far], { unreadable: 1 }), ctx);
+  assert.equal(within30(r), 1);
+  // A zone not active: nothing readable in it keeps it quiet, even with records missing
+  // (only the re-arming of an active zone waits for complete reads), so that a hotspot
+  // read later still fires: a late first alert, never a second one.
+  let q = houseEvents(undefined, read([far], { truncated: true }), ctx);
+  assert.deepEqual(q.memory.zones[30], { active: false, empty: 0 });
+  q = houseEvents(q.memory, read([far], { unreadable: 1 }), ctx);
+  assert.deepEqual(q.memory.zones[30], { active: false, empty: 0 });
+  q = houseEvents(q.memory, read([fire, far], { truncated: true }), ctx);
+  assert.equal(within30(q), 1);
+});
+
+test('the doubt at the border names the Canada-US border, with both distances', () => {
+  const doubt = T.house('Calais', {
+    perimeters: { status: 'outside', country: 'doubt' },
+    danger: { status: 'outside', country: 'doubt' },
+  });
+  assert.match(
+    doubt.en,
+    /no perimeter published \(within 1 km of the Canada-US border, or 2 km on a strait: cannot tell\)/,
+  );
+  assert.match(doubt.fr, /frontière Canada-États-Unis, ou 2 km sur un détroit : impossible à dire/);
+  assert.doesNotMatch(doubt.en, /the US border/);
+  const outside = T.house('Seattle', { perimeters: { status: 'outside', country: 'usa' } });
+  assert.match(outside.en, /no perimeter published \(outside Canada\)/);
+});
+
+test('two requests are a full second apart, even when a timer fires early', async () => {
+  const clock = testClock();
+  const sentAt = [];
+  const fetchImpl = async () => {
+    sentAt.push(clock.elapsed);
+    return new Response(JSON.stringify(fixture('hotspots-newest')));
+  };
+  // A timer of Node counts from the start of the turn of the event loop: a long
+  // one fires a few ms early, a short one on time.
+  const timers = {
+    setTimeout: (fn, ms) => clock.timers.setTimeout(fn, ms >= 500 ? ms - 20 : ms),
+    clearTimeout: clock.timers.clearTimeout,
+  };
+  const client = new CwfisClient({ fetchImpl, monotonic: clock.monotonic, timers });
+  const both = Promise.all([client.newest('hotspots'), client.newest('hotspots')]);
+  for (let i = 0; i < 40 && sentAt.length < 2; i += 1) await clock.advance(50);
+  await both;
+  assert.equal(sentAt.length, 2);
+  assert.ok(sentAt[1] - sentAt[0] >= 1000, `${sentAt[1] - sentAt[0]} ms`);
 });

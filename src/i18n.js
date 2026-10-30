@@ -4,6 +4,8 @@
 // -----------------------------------------------------------------------------
 
 import { DANGER_NEAR_KM, LIMITS, STATION_SEARCH_KM } from './constants.js';
+import { BORDER_DOUBT_KM, SHORE_DOUBT_KM } from './canada.js';
+import { hotspotCount } from './model.js';
 
 export const FEATURE_NAMES = {
   hotspots: {
@@ -104,15 +106,26 @@ export const T = {
     };
     const { hotspots, perimeters, station, danger } = r;
     if (hotspots?.status === 'ok') {
-      const n = hotspots.incomplete ? `at least ${hotspots.count}` : `${hotspots.count}`;
-      const f = hotspots.incomplete ? `au moins ${hotspots.count}` : `${hotspots.count}`;
-      add(`${n} hotspot(s) within the radius`, `${f} point(s) chaud(s) dans le rayon`);
+      const count = hotspotCount(hotspots);
+      if (count === undefined) {
+        // Records missing and none readable within the radius: unknown, never 0.
+        add(
+          'hotspots unknown (records missing, none readable within the radius)',
+          'points chauds inconnus (enregistrements manquants, aucun lisible dans le rayon)',
+        );
+      } else {
+        const n = hotspots.incomplete ? `at least ${count}` : `${count}`;
+        const f = hotspots.incomplete ? `au moins ${count}` : `${count}`;
+        add(`${n} hotspot(s) within the radius`, `${f} point(s) chaud(s) dans le rayon`);
+      }
     }
+    // The outline holds Canada and the United States only: a doubt is always
+    // that border, within BORDER_DOUBT_KM of it, or a strait of SHORE_DOUBT_KM.
     const where = (country) =>
       country === 'doubt'
         ? both(
-            'within 1 km of the US border, cannot tell',
-            'à moins de 1 km de la frontière, impossible à dire',
+            `within ${BORDER_DOUBT_KM} km of the Canada-US border, or ${SHORE_DOUBT_KM} km on a strait: cannot tell`,
+            `à moins de ${BORDER_DOUBT_KM} km de la frontière Canada-États-Unis, ou ${SHORE_DOUBT_KM} km sur un détroit : impossible à dire`,
           )
         : both('outside Canada', 'hors du Canada');
     if (perimeters?.status === 'ok') {
@@ -181,8 +194,8 @@ export const T = {
     ),
   hotspotsIncomplete: (unreadable, truncated) =>
     both(
-      `Hotspots: ${truncated ? 'more than one answer holds' : `${unreadable} unreadable record(s)`}, the count is a minimum and the nearest is not published.`,
-      `Points chauds : ${truncated ? "plus qu'une réponse n'en contient" : `${unreadable} enregistrement(s) illisible(s)`}, le décompte est un minimum et le plus proche n'est pas publié.`,
+      `Hotspots: ${truncated ? 'more than one answer holds' : `${unreadable} unreadable record(s)`}, the count is a minimum (not published without a readable one within the radius) and the nearest is not published.`,
+      `Points chauds : ${truncated ? "plus qu'une réponse n'en contient" : `${unreadable} enregistrement(s) illisible(s)`}, le décompte est un minimum (non publié sans point lisible dans le rayon) et le plus proche n'est pas publié.`,
     ),
   partFailed: (part, message) =>
     both(

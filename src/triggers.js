@@ -5,7 +5,9 @@
 //
 //   hotspot_nearby       a distance goes from quiet to "a hotspot within it";
 //                        once per episode, re-armed after REARM_READS reads in
-//                        a row without any hotspot within it
+//                        a row without any hotspot within it (a read with
+//                        records missing and none readable within it never
+//                        counts toward that: left out, as a failed read)
 //   fire_danger_raised   the danger class reaches a level it was under
 // -----------------------------------------------------------------------------
 
@@ -67,6 +69,10 @@ export function houseEvents(memory, reading, { deviceId, language = 'fr', now })
         }
         next.zones[d] = { active: true, empty: 0 };
       } else if (before?.active) {
+        // Records missing: none readable within d is not "none" (an unreadable
+        // one may still be there): never counted toward the re-arming, the zone
+        // stays as it was (a late first alert is possible, a second one is not).
+        if (hotspots.incomplete) continue;
         const empty = before.empty + 1;
         next.zones[d] = { active: empty < REARM_READS, empty };
       } else {

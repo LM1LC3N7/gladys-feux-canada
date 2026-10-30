@@ -89,6 +89,27 @@ test('US towns, even next to the border, are never in Canada', () => {
   assert.equal(countryOf({ latitude: 48.85, longitude: 2.35 }), 'elsewhere');
 });
 
+test('small islands off the simplified outline are "elsewhere" (said in the docs)', () => {
+  for (const [name, lat, lon] of [
+    ['Brier Island NS', 44.26, -66.36],
+    ['Cape Sable Island NS', 43.45, -65.62],
+    ['Sagona Island NL', 47.37, -55.79],
+    ['Lucy Islands BC', 54.295, -130.615],
+    ['Prince Rupert airport BC (Digby Island)', 54.283, -130.45],
+  ]) {
+    assert.equal(countryOf({ latitude: lat, longitude: lon }), 'elsewhere', name);
+  }
+  // The towns of those coasts are in Canada.
+  for (const [name, lat, lon] of [
+    ['Prince Rupert BC', 54.315, -130.3208],
+    ['Twillingate NL', 49.6467, -54.7558],
+    ['Yarmouth NS', 43.8375, -66.1174],
+    ['Iles-de-la-Madeleine QC', 47.38, -61.85],
+  ]) {
+    assert.equal(countryOf({ latitude: lat, longitude: lon }), 'canada', name);
+  }
+});
+
 const cityDanger = (house, name) => {
   const server = createServer();
   server.answer = (route) => (route === 'danger' ? fixture(`danger-${name}`) : undefined);
@@ -134,7 +155,7 @@ test('Calais, Lubec and Sumas: neither perimeters nor danger, nothing asked for 
     assert.ok(t.last(f('hotspots')) !== undefined, `${house.name}: hotspots cover North America`);
     assert.match(
       t.gladys.fake.connectionStatus.message.en,
-      /no perimeter published \((outside Canada|within 1 km of the US border, cannot tell)\)/,
+      /no perimeter published \((outside Canada|within 1 km of the Canada-US border, or 2 km on a strait: cannot tell)\)/,
     );
   }
 });

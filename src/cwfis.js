@@ -18,6 +18,9 @@ import {
 import { vertexCount } from './geo.js';
 import { SourceError, getJson } from './http.js';
 
+/** The spacing timer is set again this many times at most when it fired early. */
+const SPACING_TRIES = 5;
+
 /** A finite number, from a JSON number or a plain decimal text; undefined otherwise. */
 export function strictNumber(value) {
   if (typeof value === 'number') {
@@ -227,8 +230,12 @@ export class CwfisClient {
   /** Serialized and spaced: never two requests at once, never closer than REQUEST_SPACING. */
   request(url, options) {
     const run = async () => {
-      const wait = this.lastEndAt + REQUEST_SPACING - this.monotonic();
-      if (wait > 0) {
+      // A timer of Node may fire a few ms early (it counts from the start of the
+      // turn of the event loop, not from the call): the clock is read again
+      // after it, and the rest waited for (a few times at most).
+      for (let i = 0; i < SPACING_TRIES; i += 1) {
+        const wait = this.lastEndAt + REQUEST_SPACING - this.monotonic();
+        if (wait <= 0) break;
         await new Promise((resolve) => this.timers.setTimeout(resolve, wait));
       }
       this.sent += 1;
