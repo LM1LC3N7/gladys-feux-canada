@@ -41,7 +41,7 @@ test('the store basics; the same version everywhere (semver, never pinned by han
   assert.equal(manifest.manifest_version, 1);
   assert.equal(manifest.type, 'device');
   assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
-  assert.equal(pkg.version, '0.1.0');
+  assert.equal(manifest.docker_image.split(':').pop(), pkg.version);
   assert.equal(manifest.version, pkg.version);
   assert.equal(manifest.docker_image, `ghcr.io/lm1lc3n7/gladys-feux-canada:${manifest.version}`);
   assert.equal(lock.version, pkg.version);
@@ -59,9 +59,9 @@ test('the store basics; the same version everywhere (semver, never pinned by han
   assert.deepEqual(manifest.categories, ['environment']);
   assert.deepEqual(manifest.transports, ['cloud']);
   assert.equal(manifest.location, true);
-  assert.equal(manifest.gladys_version, '>=5.1.0');
+  assert.equal(manifest.gladys_version, '>=5.3.0');
   assert.equal(manifest.keywords, undefined);
-  assert.equal(manifest.countries, undefined);
+  assert.deepEqual(manifest.countries, ['CA', 'US']);
   for (const lang of ['en', 'fr']) {
     const length = manifest.description[lang].length;
     assert.ok(length >= 10 && length <= 100, `description.${lang}: ${length} characters`);
