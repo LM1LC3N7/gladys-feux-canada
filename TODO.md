@@ -5,8 +5,8 @@
 - Version 0.1.0 set by hand (package.json, lock, manifest, `docker_image`
   `ghcr.io/lm1lc3n7/gladys-feux-canada:0.1.0`), SDK `^0.16.0` (latest published
   on 2026-10-29).
-- No `keywords` nor `countries` in the manifest (the store rule): Canada and the
-  northern US would fit `countries` when the store allows it.
+- No `keywords` in the manifest (the store rule); `countries` is declared:
+  Canada and the US (the hotspots cover North America).
 - One category: `environment` (open-data daily-life feed, weather and fire).
 - No reference library exists: the requests are written from the GeoServer
   answers and schemas. GeoJSON in `EPSG:4326` (the layers are stored in a
@@ -104,7 +104,6 @@
 
 - A dashboard widget (map of the hotspots around the house, nearest fires).
 - The danger forecast of the next days (NAEFS / SCRIBE layers `fdr_*`).
-- `countries` when the store takes it.
 
 ## Next patch (review r4, 8c90064)
 
