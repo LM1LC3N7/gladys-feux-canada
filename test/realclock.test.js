@@ -14,7 +14,7 @@ import { FeuxApp } from '../src/app.js';
 import { CwfisClient } from '../src/cwfis.js';
 import { createMemoryStore } from '../src/store.js';
 import { measurePeriod, realClock, spyOn } from './kit/clock.mjs';
-import { HOUSES, SELECTOR, created, defaults, routeOf } from './helpers/app.js';
+import { HOUSES, NOW, SELECTOR, created, defaults, routeOf } from './helpers/app.js';
 
 const SPEED = 20;
 const INTERVAL = 60_000;
@@ -35,7 +35,8 @@ test('real clock x20: reads at the interval, never sooner; one request at a time
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise((resolve) => server.close(resolve)));
-  const clock = realClock({ speed: SPEED });
+  // The wall clock starts at the captures' date: they would be stale today.
+  const clock = realClock({ speed: SPEED, start: NOW });
   t.after(() => clock.close());
   const gladys = createFakeGladys({
     selector: SELECTOR,
